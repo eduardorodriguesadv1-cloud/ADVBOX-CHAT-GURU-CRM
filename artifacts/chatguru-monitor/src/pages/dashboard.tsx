@@ -1,206 +1,317 @@
 import React from "react";
 import { useGetStats, getGetStatsQueryKey, useGetWebhookUrl, getGetWebhookUrlQueryKey } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { formatPhone, formatDate } from "@/lib/utils";
-import { Copy, AlertCircle, RefreshCw, MessageSquare, Clock, CheckCircle2, XCircle, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { RefreshCw, Copy, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+
+function getInitials(name: string) {
+  return name
+    .replace(/[^\w\s]/g, "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+}
+
+const AVATAR_COLORS = [
+  "#3b82f6","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#ec4899","#6366f1",
+];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[Math.abs(h)];
+}
+
+function OrigemBadge({ origem }: { origem?: string }) {
+  if (!origem) return null;
+  const isAds = origem.toLowerCase().includes("ads") || origem.toLowerCase().includes("meta") || origem.toLowerCase().includes("trafego");
+  return (
+    <span
+      style={{
+        background: isAds ? "#ede9fe" : "#e0f2fe",
+        color: isAds ? "#5b21b6" : "#0369a1",
+        borderRadius: 20,
+        padding: "1px 8px",
+        fontSize: 11,
+        fontWeight: 500,
+        whiteSpace: "nowrap" as const,
+      }}
+    >
+      {isAds ? "📣 " : "🏢 "}
+      {origem}
+    </span>
+  );
+}
 
 export function Dashboard() {
   const { toast } = useToast();
-  
-  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats, isFetching } = useGetStats({
+
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+    refetch: refetchStats,
+    isFetching,
+  } = useGetStats({
     query: {
       queryKey: getGetStatsQueryKey(),
-      refetchInterval: 30000, // Refresh every 30s
-    }
+      refetchInterval: 30000,
+    },
   });
 
-  const { data: webhookInfo, isLoading: webhookLoading } = useGetWebhookUrl({
-    query: {
-      queryKey: getGetWebhookUrlQueryKey(),
-    }
+  const { data: webhookInfo } = useGetWebhookUrl({
+    query: { queryKey: getGetWebhookUrlQueryKey() },
   });
 
   const copyWebhook = () => {
     if (webhookInfo?.url) {
       navigator.clipboard.writeText(webhookInfo.url);
-      toast({
-        title: "Copiado!",
-        description: "URL do Webhook copiada para a área de transferência.",
-      });
+      toast({ title: "Copiado!", description: "URL do Webhook copiada." });
     }
   };
 
+  const today = new Date().toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+
   const statCards = [
-    { title: "Total Hoje", value: stats?.todayTotal ?? 0, icon: Users, color: "text-blue-500" },
-    { title: "Abertos", value: stats?.open ?? 0, icon: AlertCircle, color: "text-amber-500" },
-    { title: "Em Atendimento", value: stats?.inProgress ?? 0, icon: MessageSquare, color: "text-blue-500" },
-    { title: "Aguardando", value: stats?.waiting ?? 0, icon: Clock, color: "text-orange-500" },
-    { title: "Resolvidos", value: stats?.resolved ?? 0, icon: CheckCircle2, color: "text-green-500" },
-    { title: "Fechados", value: stats?.closed ?? 0, icon: XCircle, color: "text-slate-500" },
+    { label: "Total Hoje", value: stats?.todayTotal ?? 0, icon: "👥", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
+    { label: "Abertos", value: stats?.open ?? 0, icon: "🔔", bg: "#fffbeb", border: "#fde68a", valColor: "#92400e" },
+    { label: "Em Atendimento", value: stats?.inProgress ?? 0, icon: "💬", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
+    { label: "Aguardando", value: stats?.waiting ?? 0, icon: "⏳", bg: "#fff7ed", border: "#fed7aa", valColor: "#9a3412" },
+    { label: "Resolvidos", value: stats?.resolved ?? 0, icon: "✅", bg: "#f0fdf4", border: "#bbf7d0", valColor: "#065f46" },
+    { label: "Fechados", value: stats?.closed ?? 0, icon: "🔒", bg: "#f8fafc", border: "#e2e8f0", valColor: "#475569" },
   ];
 
+  const total = stats?.todayTotal ?? 0;
+  const funnelSteps = [
+    { label: "Captados", value: total, color: "#3b82f6" },
+    { label: "Abertos", value: stats?.open ?? 0, color: "#f59e0b" },
+    { label: "Em Atendimento", value: stats?.inProgress ?? 0, color: "#06b6d4" },
+    { label: "Resolvidos", value: stats?.resolved ?? 0, color: "#10b981" },
+  ];
+
+  const originCounts: Record<string, number> = {};
+  if (stats?.recentActivity) {
+    for (const a of stats.recentActivity) {
+      const origem = (a as any).origem || "Desconhecido";
+      originCounts[origem] = (originCounts[origem] ?? 0) + 1;
+    }
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard Principal</h1>
-          <p className="text-muted-foreground mt-1">Visão geral da operação de atendimento.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-1 capitalize">{today}</p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => refetchStats()} 
+        <button
+          onClick={() => refetchStats()}
           disabled={isFetching}
-          className="gap-2"
+          className="flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
           Atualizar
-        </Button>
+        </button>
       </div>
 
       {statsError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Erro</AlertTitle>
-          <AlertDescription>
-            Não foi possível carregar as estatísticas. Verifique a conexão com a API.
-          </AlertDescription>
+          <AlertDescription>Não foi possível carregar as estatísticas.</AlertDescription>
         </Alert>
       )}
 
-      {/* Cards */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {statsLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-4 w-4" />
-              </CardHeader>
-              <CardContent>
+        {statsLoading
+          ? Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="rounded-xl border p-4 space-y-2">
+                <Skeleton className="h-3 w-20" />
                 <Skeleton className="h-8 w-12" />
-              </CardContent>
-            </Card>
-          ))
-        ) : (
-          statCards.map((card, i) => (
-            <Card key={i}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  {card.title}
-                </CardTitle>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{card.value}</div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+              </div>
+            ))
+          : statCards.map((c) => (
+              <div
+                key={c.label}
+                style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: "16px" }}
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-medium text-muted-foreground">{c.label}</span>
+                  <span className="text-lg">{c.icon}</span>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: c.valColor, lineHeight: 1 }}>{c.value}</div>
+              </div>
+            ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Atividades Recentes</CardTitle>
-              <CardDescription>Últimas interações nos atendimentos.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {statsLoading ? (
-                <div className="space-y-4">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                      <div className="space-y-2">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-48" />
-                      </div>
-                      <Skeleton className="h-6 w-24" />
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Funil de Leads */}
+        <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+          <h2 className="text-sm font-semibold">Funil de Leads</h2>
+          {statsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {funnelSteps.map((s) => (
+                <div key={s.label}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                    <span className="text-xs font-semibold">{s.value}</span>
+                  </div>
+                  <div className="bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      style={{
+                        height: "100%",
+                        width: total > 0 ? `${(s.value / total) * 100}%` : "0%",
+                        background: s.color,
+                        borderRadius: 99,
+                        minWidth: s.value > 0 ? 8 : 0,
+                        transition: "width 0.5s",
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Por Origem */}
+          {!statsLoading && Object.keys(originCounts).length > 0 && (
+            <div className="pt-4 border-t border-border space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Por Origem</p>
+              {Object.entries(originCounts).map(([origem, count], i) => {
+                const isAds = origem.toLowerCase().includes("ads") || origem.toLowerCase().includes("meta") || origem.toLowerCase().includes("trafego");
+                return (
+                  <div key={origem} className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: isAds ? "#8b5cf6" : "#06b6d4" }} />
+                      <span className="text-xs">{origem}</span>
                     </div>
-                  ))}
-                </div>
-              ) : stats?.recentActivity && stats.recentActivity.length > 0 ? (
-                <div className="space-y-6">
-                  {stats.recentActivity.map((activity) => (
-                    <div key={activity.id} className="flex items-start justify-between border-b pb-6 last:border-0 last:pb-0">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-foreground">
-                            {activity.contactName || formatPhone(activity.chatNumber)}
-                          </span>
-                          {activity.contactName && (
-                            <span className="text-xs text-muted-foreground">
-                              {formatPhone(activity.chatNumber)}
-                            </span>
-                          )}
-                        </div>
-                        {activity.lastMessage && (
-                          <p className="text-sm text-muted-foreground line-clamp-1">
-                            {activity.lastMessage}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          {formatDate(activity.lastMessageAt || activity.updatedAt)}
-                          {activity.assignedAgent && (
-                            <>
-                              <span>•</span>
-                              <span>Agente: {activity.assignedAgent}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <StatusBadge status={activity.status} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  Nenhuma atividade recente registrada.
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    <span className="text-xs font-semibold">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Webhook URL */}
+          {webhookInfo?.url && (
+            <div className="pt-4 border-t border-border space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">URL do Webhook</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-2 py-1.5 bg-muted rounded text-xs truncate font-mono text-muted-foreground border border-border">
+                  {webhookInfo.url}
+                </code>
+                <button
+                  onClick={copyWebhook}
+                  className="p-1.5 rounded bg-muted hover:bg-muted/80 border border-border transition-colors"
+                  title="Copiar"
+                >
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuração ChatGuru</CardTitle>
-              <CardDescription>URL do Webhook para integração.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {webhookLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-20 w-full" />
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 px-3 py-2 bg-muted rounded-md text-sm truncate font-mono text-muted-foreground border border-border">
-                      {webhookInfo?.url || "URL não disponível"}
-                    </code>
-                    <Button variant="secondary" size="icon" onClick={copyWebhook} title="Copiar">
-                      <Copy className="h-4 w-4" />
-                    </Button>
+        {/* Leads Recentes */}
+        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-sm font-semibold">Leads Recentes</h2>
+            <a href="/conversations" className="text-xs text-primary hover:underline">Ver todos →</a>
+          </div>
+
+          {statsLoading ? (
+            <div className="space-y-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-3 w-48" />
                   </div>
-                  {webhookInfo?.instructions && (
-                    <div className="p-4 bg-primary/5 border border-primary/20 rounded-md text-sm text-primary/80">
-                      {webhookInfo.instructions}
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </div>
+              ))}
+            </div>
+          ) : stats?.recentActivity && stats.recentActivity.length > 0 ? (
+            <div>
+              {stats.recentActivity.map((activity, i) => {
+                const name = activity.contactName || formatPhone(activity.chatNumber);
+                const origem = (activity as any).origem as string | undefined;
+                return (
+                  <div
+                    key={activity.id}
+                    className="flex items-center gap-3 py-3"
+                    style={{ borderBottom: i < stats.recentActivity!.length - 1 ? "1px solid hsl(var(--border))" : "none" }}
+                  >
+                    {/* Avatar */}
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: avatarColor(name),
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "white",
+                        fontWeight: 700,
+                        fontSize: 12,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {getInitials(name) || "?"}
                     </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{name}</span>
+                        {activity.contactName && (
+                          <span className="text-xs text-muted-foreground">{formatPhone(activity.chatNumber)}</span>
+                        )}
+                      </div>
+                      {activity.lastMessage && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{activity.lastMessage}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {origem && <OrigemBadge origem={origem} />}
+                        {activity.assignedAgent && (
+                          <span className="text-xs text-muted-foreground">• {activity.assignedAgent}</span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          • {formatDate(activity.lastMessageAt || activity.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status */}
+                    <div className="flex-shrink-0">
+                      <StatusBadge status={activity.status} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Nenhuma atividade recente registrada.
+            </div>
+          )}
         </div>
       </div>
     </div>
