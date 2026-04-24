@@ -164,6 +164,21 @@ router.get("/stats", async (req: Request, res: Response) => {
   res.json(stats);
 });
 
+router.delete("/conversations/:id", async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ ok: false, message: "ID inválido" });
+    return;
+  }
+  try {
+    await db.delete(conversationsTable).where(eq(conversationsTable.id, id));
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Error deleting conversation");
+    res.status(500).json({ ok: false });
+  }
+});
+
 router.post("/check-status", async (req: Request, res: Response) => {
   const parsed = CheckChatStatusBody.safeParse(req.body);
   if (!parsed.success) {

@@ -299,6 +299,90 @@ export function useListConversations<
 }
 
 /**
+ * @summary Delete a conversation
+ */
+export const getDeleteConversationUrl = (id: number) => {
+  return `/api/chatguru/conversations/${id}`;
+};
+
+export const deleteConversation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<WebhookResponse> => {
+  return customFetch<WebhookResponse>(getDeleteConversationUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteConversationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteConversation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteConversation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteConversation(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteConversation>>
+>;
+
+export type DeleteConversationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a conversation
+ */
+export const useDeleteConversation = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteConversation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteConversation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteConversationMutationOptions(options));
+};
+
+/**
  * Returns aggregate stats for the monitoring dashboard
  * @summary Get monitoring stats
  */

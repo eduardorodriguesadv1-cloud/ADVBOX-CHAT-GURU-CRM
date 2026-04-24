@@ -80,6 +80,17 @@ export const ListConversationsResponse = zod.object({
 });
 
 /**
+ * @summary Delete a conversation
+ */
+export const DeleteConversationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteConversationResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * Returns aggregate stats for the monitoring dashboard
  * @summary Get monitoring stats
  */

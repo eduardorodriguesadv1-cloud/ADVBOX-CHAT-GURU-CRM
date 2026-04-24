@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { useListConversations, getListConversationsQueryKey, type ListConversationsStatus } from "@workspace/api-client-react";
+import { useListConversations, useDeleteConversation, getListConversationsQueryKey, type ListConversationsStatus } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,9 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/status-badge";
 import { formatPhone, formatDate } from "@/lib/utils";
-import { Search, Loader2, FileText } from "lucide-react";
+import { Search, Loader2, FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
+import { toast } from "sonner";
 
 function ContextDataPopover({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data);
@@ -40,7 +42,9 @@ function ContextDataPopover({ data }: { data: Record<string, unknown> }) {
 export function Conversations() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<ListConversationsStatus | "all">("all");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const debouncedSearch = useDebounce(search, 500);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isFetching } = useListConversations({
     query: {
@@ -50,6 +54,20 @@ export function Conversations() {
         limit: 50
       }),
       keepPreviousData: true
+    }
+  });
+
+  const { mutate: deleteConv } = useDeleteConversation({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries();
+        toast.success("Conversa removida.");
+        setDeletingId(null);
+      },
+      onError: () => {
+        toast.error("Erro ao remover conversa.");
+        setDeletingId(null);
+      }
     }
   });
 
@@ -105,18 +123,19 @@ export function Conversations() {
                   <TableHead>Última Mensagem</TableHead>
                   <TableHead>Dados</TableHead>
                   <TableHead className="text-right">Atualização</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : data?.conversations.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       Nenhuma conversa encontrada.
                     </TableCell>
                   </TableRow>
@@ -152,6 +171,25 @@ export function Conversations() {
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {formatDate(conv.updatedAt)}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                          disabled={deletingId === conv.id}
+                          onClick={() => {
+                            if (confirm(`Remover conversa de ${conv.contactName || conv.chatNumber}?`)) {
+                              setDeletingId(conv.id);
+                              deleteConv({ id: conv.id });
+                            }
+                          }}
+                        >
+                          {deletingId === conv.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />
+                          }
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))

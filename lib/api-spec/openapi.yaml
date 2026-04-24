@@ -88,6 +88,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConversationList"
 
+  /chatguru/conversations/{id}:
+    delete:
+      operationId: deleteConversation
+      tags: [chatguru]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+
   /chatguru/stats:
     get:
       operationId: getStats
