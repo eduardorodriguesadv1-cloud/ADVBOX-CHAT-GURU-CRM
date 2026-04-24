@@ -36,14 +36,25 @@ router.post("/webhook", async (req: Request, res: Response) => {
       rawPayload: JSON.stringify(raw),
     });
 
-    if (raw.chat_number) {
-      const status = mapStatus(raw.status);
+    // Support both English and Portuguese field names sent by ChatGuru
+    const chatNumber = raw.chat_number ?? raw.celular ?? raw.chat_id ?? null;
+    const contactName = raw.name ?? raw.nome ?? null;
+    const agentName = raw.agent ?? raw.responsavel_nome ?? null;
+    const lastMsg = raw.message ?? raw.texto_mensagem ?? null;
+    const rawStatus = raw.status ?? null;
+
+    if (chatNumber) {
+      const status = mapStatus(rawStatus);
 
       // Extract known fields and store everything else as contextData
-      const knownFields = new Set(["chat_number", "name", "status", "agent", "message", "phone_id", "account_id", "key"]);
+      const knownFields = new Set([
+        "chat_number", "name", "status", "agent", "message", "phone_id", "account_id", "key",
+        "celular", "nome", "responsavel_nome", "texto_mensagem", "email",
+        "responsavel_email", "chat_id", "tipo_mensagem", "executado_por"
+      ]);
       const contextData: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(raw)) {
-        if (!knownFields.has(k) && v !== null && v !== undefined && v !== "") {
+        if (!knownFields.has(k) && v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0) && !(typeof v === "object" && v !== null && Object.keys(v as object).length === 0)) {
           contextData[k] = v;
         }
       }
@@ -52,7 +63,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
       const existing = await db
         .select()
         .from(conversationsTable)
-        .where(eq(conversationsTable.chatNumber, String(raw.chat_number)))
+        .where(eq(conversationsTable.chatNumber, String(chatNumber)))
         .limit(1);
 
       if (existing.length > 0) {
@@ -60,22 +71,22 @@ router.post("/webhook", async (req: Request, res: Response) => {
         await db
           .update(conversationsTable)
           .set({
-            contactName: raw.name ?? existing[0].contactName,
+            contactName: contactName ?? existing[0].contactName,
             status,
-            assignedAgent: raw.agent ?? existing[0].assignedAgent,
-            lastMessage: raw.message ?? existing[0].lastMessage,
+            assignedAgent: agentName ?? existing[0].assignedAgent,
+            lastMessage: lastMsg ?? existing[0].lastMessage,
             lastMessageAt: new Date(),
             contextData: hasContext ? { ...prevContext, ...contextData } : existing[0].contextData,
             updatedAt: new Date(),
           })
-          .where(eq(conversationsTable.chatNumber, String(raw.chat_number)));
+          .where(eq(conversationsTable.chatNumber, String(chatNumber)));
       } else {
         await db.insert(conversationsTable).values({
-          chatNumber: String(raw.chat_number),
-          contactName: raw.name ?? null,
+          chatNumber: String(chatNumber),
+          contactName: contactName ?? null,
           status,
-          assignedAgent: raw.agent ?? null,
-          lastMessage: raw.message ?? null,
+          assignedAgent: agentName ?? null,
+          lastMessage: lastMsg ?? null,
           lastMessageAt: new Date(),
           contextData: hasContext ? contextData : null,
         });
