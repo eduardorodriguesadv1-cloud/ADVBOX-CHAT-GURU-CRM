@@ -38,6 +38,17 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
     if (raw.chat_number) {
       const status = mapStatus(raw.status);
+
+      // Extract known fields and store everything else as contextData
+      const knownFields = new Set(["chat_number", "name", "status", "agent", "message", "phone_id", "account_id", "key"]);
+      const contextData: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (!knownFields.has(k) && v !== null && v !== undefined && v !== "") {
+          contextData[k] = v;
+        }
+      }
+      const hasContext = Object.keys(contextData).length > 0;
+
       const existing = await db
         .select()
         .from(conversationsTable)
@@ -45,6 +56,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
         .limit(1);
 
       if (existing.length > 0) {
+        const prevContext = (existing[0].contextData as Record<string, unknown>) ?? {};
         await db
           .update(conversationsTable)
           .set({
@@ -53,6 +65,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
             assignedAgent: raw.agent ?? existing[0].assignedAgent,
             lastMessage: raw.message ?? existing[0].lastMessage,
             lastMessageAt: new Date(),
+            contextData: hasContext ? { ...prevContext, ...contextData } : existing[0].contextData,
             updatedAt: new Date(),
           })
           .where(eq(conversationsTable.chatNumber, String(raw.chat_number)));
@@ -64,6 +77,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
           assignedAgent: raw.agent ?? null,
           lastMessage: raw.message ?? null,
           lastMessageAt: new Date(),
+          contextData: hasContext ? contextData : null,
         });
       }
     }

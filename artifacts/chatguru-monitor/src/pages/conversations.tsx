@@ -1,13 +1,41 @@
 import React, { useState } from "react";
 import { useListConversations, getListConversationsQueryKey, type ListConversationsStatus } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/status-badge";
 import { formatPhone, formatDate } from "@/lib/utils";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
+
+function ContextDataPopover({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary px-2">
+          <FileText className="w-3 h-3" />
+          {entries.length} dado{entries.length > 1 ? "s" : ""}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3" align="start">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Dados do Atendimento</p>
+        <div className="space-y-1.5">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex items-start gap-2 text-sm">
+              <span className="text-muted-foreground shrink-0 min-w-[80px] capitalize">{k.replace(/_/g, " ")}:</span>
+              <span className="font-medium break-all">{String(v)}</span>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function Conversations() {
   const [search, setSearch] = useState("");
@@ -74,20 +102,21 @@ export function Conversations() {
                   <TableHead>Contato</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Agente</TableHead>
-                  <TableHead className="w-[40%]">Última Mensagem</TableHead>
+                  <TableHead>Última Mensagem</TableHead>
+                  <TableHead>Dados</TableHead>
                   <TableHead className="text-right">Atualização</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
+                    <TableCell colSpan={6} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : data?.conversations.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       Nenhuma conversa encontrada.
                     </TableCell>
                   </TableRow>
@@ -114,6 +143,12 @@ export function Conversations() {
                          <span className="truncate block text-sm text-muted-foreground">
                           {conv.lastMessage || "-"}
                          </span>
+                      </TableCell>
+                      <TableCell>
+                        {conv.contextData && Object.keys(conv.contextData).length > 0
+                          ? <ContextDataPopover data={conv.contextData as Record<string, unknown>} />
+                          : <span className="text-muted-foreground text-xs italic">—</span>
+                        }
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {formatDate(conv.updatedAt)}

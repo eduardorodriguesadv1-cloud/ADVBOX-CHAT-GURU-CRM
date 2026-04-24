@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConversationContextData } from "./conversationContextData";
 import type { ConversationStatus } from "./conversationStatus";
 
 export interface Conversation {
@@ -15,6 +16,8 @@ export interface Conversation {
   assignedAgent?: string;
   lastMessage?: string;
   lastMessageAt?: Date;
+  /** Extra fields captured from the ChatGuru webhook payload */
+  contextData?: ConversationContextData;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -191,6 +191,10 @@ components:
         lastMessageAt:
           type: string
           format: date-time
+        contextData:
+          type: object
+          additionalProperties: true
+          description: Extra fields captured from the ChatGuru webhook payload
         createdAt:
           type: string
           format: date-time

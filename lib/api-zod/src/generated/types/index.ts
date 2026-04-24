@@ -10,6 +10,7 @@ export * from "./checkStatusRequest";
 export * from "./checkStatusResponse";
 export * from "./checkStatusResponseRaw";
 export * from "./conversation";
+export * from "./conversationContextData";
 export * from "./conversationList";
 export * from "./conversationStatus";
 export * from "./dashboardStats";

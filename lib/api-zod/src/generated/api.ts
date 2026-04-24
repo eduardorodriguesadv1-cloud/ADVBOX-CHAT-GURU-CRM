@@ -68,6 +68,10 @@ export const ListConversationsResponse = zod.object({
       assignedAgent: zod.string().optional(),
       lastMessage: zod.string().optional(),
       lastMessageAt: zod.coerce.date().optional(),
+      contextData: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Extra fields captured from the ChatGuru webhook payload"),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -103,6 +107,10 @@ export const GetStatsResponse = zod.object({
       assignedAgent: zod.string().optional(),
       lastMessage: zod.string().optional(),
       lastMessageAt: zod.coerce.date().optional(),
+      contextData: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe("Extra fields captured from the ChatGuru webhook payload"),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),

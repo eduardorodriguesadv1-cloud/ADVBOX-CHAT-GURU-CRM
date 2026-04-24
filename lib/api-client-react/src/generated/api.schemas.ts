@@ -39,6 +39,11 @@ export const ConversationStatus = {
   unknown: "unknown",
 } as const;
 
+/**
+ * Extra fields captured from the ChatGuru webhook payload
+ */
+export type ConversationContextData = { [key: string]: unknown };
+
 export interface Conversation {
   id: number;
   chatNumber: string;
@@ -47,6 +52,8 @@ export interface Conversation {
   assignedAgent?: string;
   lastMessage?: string;
   lastMessageAt?: string;
+  /** Extra fields captured from the ChatGuru webhook payload */
+  contextData?: ConversationContextData;
   createdAt: string;
   updatedAt: string;
 }
