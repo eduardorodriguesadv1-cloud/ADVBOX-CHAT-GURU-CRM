@@ -15,15 +15,15 @@ const API_KEY = process.env.CHATGURU_API_KEY!;
 const ACCOUNT_ID = process.env.CHATGURU_ACCOUNT_ID!;
 const PHONE_ID = process.env.CHATGURU_PHONE_ID!;
 
-function mapStatus(raw: string | undefined): string {
-  if (!raw) return "unknown";
+function mapStatus(raw: string | undefined | null): string {
+  if (!raw) return "open";
   const s = raw.toLowerCase().trim();
   if (s === "aberto" || s === "open") return "open";
   if (s === "em atendimento" || s === "in_progress" || s === "atendimento") return "in_progress";
   if (s === "aguardando" || s === "waiting") return "waiting";
   if (s === "resolvido" || s === "resolved") return "resolved";
   if (s === "fechado" || s === "closed") return "closed";
-  return s;
+  return "open";
 }
 
 router.post("/webhook", async (req: Request, res: Response) => {
