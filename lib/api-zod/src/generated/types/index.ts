@@ -6,4 +6,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./checkStatusRequest";
+export * from "./checkStatusResponse";
+export * from "./checkStatusResponseRaw";
+export * from "./conversation";
+export * from "./conversationList";
+export * from "./conversationStatus";
+export * from "./dashboardStats";
 export * from "./healthStatus";
+export * from "./listConversationsParams";
+export * from "./listConversationsStatus";
+export * from "./webhookPayload";
+export * from "./webhookResponse";
+export * from "./webhookUrlInfo";

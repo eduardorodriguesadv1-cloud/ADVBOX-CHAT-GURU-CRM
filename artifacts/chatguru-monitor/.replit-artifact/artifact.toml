@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Monitor de Atendimentos ChatGuru"
+version = "1.0.0"
+id = "artifacts/chatguru-monitor"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25170
+
+[services.development]
+run = "pnpm --filter @workspace/chatguru-monitor run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/chatguru-monitor", "run", "build" ]
+publicDir = "artifacts/chatguru-monitor/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25170"
+BASE_PATH = "/"

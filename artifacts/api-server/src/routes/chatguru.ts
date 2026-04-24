@@ -1,0 +1,216 @@
+import { Router, Request, Response } from "express";
+import { db, conversationsTable, webhookEventsTable } from "@workspace/db";
+import { eq, desc, count, and, like, sql, gte } from "drizzle-orm";
+import {
+  ChatguruWebhookBody,
+  ListConversationsQueryParams,
+  CheckChatStatusBody,
+} from "@workspace/api-zod";
+import { logger } from "../lib/logger";
+
+const router = Router();
+
+const CHATGURU_API = "https://app.zap.guru/api/v1";
+const API_KEY = process.env.CHATGURU_API_KEY!;
+const ACCOUNT_ID = process.env.CHATGURU_ACCOUNT_ID!;
+const PHONE_ID = process.env.CHATGURU_PHONE_ID!;
+
+function mapStatus(raw: string | undefined): string {
+  if (!raw) return "unknown";
+  const s = raw.toLowerCase().trim();
+  if (s === "aberto" || s === "open") return "open";
+  if (s === "em atendimento" || s === "in_progress" || s === "atendimento") return "in_progress";
+  if (s === "aguardando" || s === "waiting") return "waiting";
+  if (s === "resolvido" || s === "resolved") return "resolved";
+  if (s === "fechado" || s === "closed") return "closed";
+  return s;
+}
+
+router.post("/webhook", async (req: Request, res: Response) => {
+  try {
+    const raw = req.body ?? {};
+    req.log.info({ raw }, "Webhook received");
+
+    await db.insert(webhookEventsTable).values({
+      chatNumber: raw.chat_number ?? null,
+      rawPayload: JSON.stringify(raw),
+    });
+
+    if (raw.chat_number) {
+      const status = mapStatus(raw.status);
+      const existing = await db
+        .select()
+        .from(conversationsTable)
+        .where(eq(conversationsTable.chatNumber, String(raw.chat_number)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(conversationsTable)
+          .set({
+            contactName: raw.name ?? existing[0].contactName,
+            status,
+            assignedAgent: raw.agent ?? existing[0].assignedAgent,
+            lastMessage: raw.message ?? existing[0].lastMessage,
+            lastMessageAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversationsTable.chatNumber, String(raw.chat_number)));
+      } else {
+        await db.insert(conversationsTable).values({
+          chatNumber: String(raw.chat_number),
+          contactName: raw.name ?? null,
+          status,
+          assignedAgent: raw.agent ?? null,
+          lastMessage: raw.message ?? null,
+          lastMessageAt: new Date(),
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Error processing webhook");
+    res.json({ ok: false });
+  }
+});
+
+router.get("/conversations", async (req: Request, res: Response) => {
+  const parsed = ListConversationsQueryParams.safeParse(req.query);
+  const { status, search, limit = 50, offset = 0 } = parsed.success ? parsed.data : { status: undefined, search: undefined, limit: 50, offset: 0 };
+
+  const conditions = [];
+  if (status) conditions.push(eq(conversationsTable.status, status));
+  if (search) {
+    conditions.push(
+      sql`(${conversationsTable.chatNumber} ILIKE ${"%" + search + "%"} OR ${conversationsTable.contactName} ILIKE ${"%" + search + "%"})`
+    );
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [conversations, [{ total }]] = await Promise.all([
+    db
+      .select()
+      .from(conversationsTable)
+      .where(where)
+      .orderBy(desc(conversationsTable.updatedAt))
+      .limit(Number(limit))
+      .offset(Number(offset)),
+    db
+      .select({ total: count() })
+      .from(conversationsTable)
+      .where(where),
+  ]);
+
+  res.json({ conversations, total: Number(total) });
+});
+
+router.get("/stats", async (req: Request, res: Response) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [statusCounts, [{ todayTotal }], recentActivity] = await Promise.all([
+    db
+      .select({ status: conversationsTable.status, count: count() })
+      .from(conversationsTable)
+      .groupBy(conversationsTable.status),
+    db
+      .select({ todayTotal: count() })
+      .from(conversationsTable)
+      .where(gte(conversationsTable.createdAt, today)),
+    db
+      .select()
+      .from(conversationsTable)
+      .orderBy(desc(conversationsTable.updatedAt))
+      .limit(5),
+  ]);
+
+  const stats = {
+    total: 0,
+    open: 0,
+    inProgress: 0,
+    waiting: 0,
+    resolved: 0,
+    closed: 0,
+    todayTotal: Number(todayTotal),
+    recentActivity,
+  };
+
+  for (const row of statusCounts) {
+    const n = Number(row.count);
+    stats.total += n;
+    if (row.status === "open") stats.open = n;
+    else if (row.status === "in_progress") stats.inProgress = n;
+    else if (row.status === "waiting") stats.waiting = n;
+    else if (row.status === "resolved") stats.resolved = n;
+    else if (row.status === "closed") stats.closed = n;
+  }
+
+  res.json(stats);
+});
+
+router.post("/check-status", async (req: Request, res: Response) => {
+  const parsed = CheckChatStatusBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ chatNumber: "", found: false, raw: {} });
+    return;
+  }
+
+  const { chatNumber } = parsed.data;
+
+  try {
+    const params = new URLSearchParams({
+      key: API_KEY,
+      account_id: ACCOUNT_ID,
+      phone_id: PHONE_ID,
+      action: "chat_status",
+      chat_number: chatNumber,
+    });
+
+    const response = await fetch(`${CHATGURU_API}?${params}`, { method: "POST" });
+    const raw = (await response.json()) as Record<string, unknown>;
+    req.log.info({ chatNumber, raw }, "ChatGuru check-status response");
+
+    const found = raw.result === "success" || raw.code === 200 || raw.code === 201;
+    const status = typeof raw.status === "string" ? mapStatus(raw.status) : undefined;
+
+    if (found && status) {
+      const existing = await db
+        .select()
+        .from(conversationsTable)
+        .where(eq(conversationsTable.chatNumber, chatNumber))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(conversationsTable)
+          .set({ status, updatedAt: new Date() })
+          .where(eq(conversationsTable.chatNumber, chatNumber));
+      } else {
+        await db.insert(conversationsTable).values({
+          chatNumber,
+          status,
+          lastMessageAt: new Date(),
+        });
+      }
+    }
+
+    res.json({ chatNumber, found, status, raw });
+  } catch (err) {
+    req.log.error({ err }, "Error checking chat status");
+    res.status(500).json({ chatNumber, found: false });
+  }
+});
+
+router.get("/webhook-url", (req: Request, res: Response) => {
+  const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "seu-dominio.replit.app";
+  const url = `https://${domains}/api/chatguru/webhook`;
+  res.json({
+    url,
+    instructions:
+      "Configure este URL no ChatGuru em: Chatbot → Ação de CRM → POST Webhook. Cole este URL no campo de URL do webhook.",
+  });
+});
+
+export default router;

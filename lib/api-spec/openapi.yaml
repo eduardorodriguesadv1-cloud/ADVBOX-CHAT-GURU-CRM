@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: chatguru
+    description: ChatGuru monitoring operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,114 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /chatguru/webhook:
+    post:
+      operationId: chatguruWebhook
+      tags: [chatguru]
+      summary: Receive ChatGuru webhook
+      description: Receives incoming events/data from ChatGuru chatbot CRM actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookPayload"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/WebhookPayload"
+      responses:
+        "200":
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+
+  /chatguru/conversations:
+    get:
+      operationId: listConversations
+      tags: [chatguru]
+      summary: List all conversations
+      description: Returns a paginated list of stored conversations
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, in_progress, waiting, resolved, closed]
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationList"
+
+  /chatguru/stats:
+    get:
+      operationId: getStats
+      tags: [chatguru]
+      summary: Get monitoring stats
+      description: Returns aggregate stats for the monitoring dashboard
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /chatguru/check-status:
+    post:
+      operationId: checkChatStatus
+      tags: [chatguru]
+      summary: Check a chat status via ChatGuru API
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckStatusRequest"
+      responses:
+        "200":
+          description: Chat status result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckStatusResponse"
+
+  /chatguru/webhook-url:
+    get:
+      operationId: getWebhookUrl
+      tags: [chatguru]
+      summary: Get the webhook URL to configure in ChatGuru
+      responses:
+        "200":
+          description: Webhook URL info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookUrlInfo"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +144,142 @@ components:
       required:
         - status
 
+    WebhookPayload:
+      type: object
+      description: Flexible payload from ChatGuru webhook
+      properties:
+        chat_number:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        agent:
+          type: string
+        message:
+          type: string
+        phone_id:
+          type: string
+        account_id:
+          type: string
+      additionalProperties: true
+
+    WebhookResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        chatNumber:
+          type: string
+        contactName:
+          type: string
+        status:
+          type: string
+          enum: [open, in_progress, waiting, resolved, closed, unknown]
+        assignedAgent:
+          type: string
+        lastMessage:
+          type: string
+        lastMessageAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - chatNumber
+        - status
+        - createdAt
+        - updatedAt
+
+    ConversationList:
+      type: object
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total:
+          type: integer
+      required:
+        - conversations
+        - total
+
+    DashboardStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        open:
+          type: integer
+        inProgress:
+          type: integer
+        waiting:
+          type: integer
+        resolved:
+          type: integer
+        closed:
+          type: integer
+        todayTotal:
+          type: integer
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+      required:
+        - total
+        - open
+        - inProgress
+        - waiting
+        - resolved
+        - closed
+        - todayTotal
+        - recentActivity
+
+    CheckStatusRequest:
+      type: object
+      properties:
+        chatNumber:
+          type: string
+          description: Phone number with country + area code e.g. 5511999999999
+      required:
+        - chatNumber
+
+    CheckStatusResponse:
+      type: object
+      properties:
+        chatNumber:
+          type: string
+        status:
+          type: string
+        found:
+          type: boolean
+        raw:
+          type: object
+          additionalProperties: true
+      required:
+        - chatNumber
+        - found
+
+    WebhookUrlInfo:
+      type: object
+      properties:
+        url:
+          type: string
+        instructions:
+          type: string
+      required:
+        - url
+        - instructions

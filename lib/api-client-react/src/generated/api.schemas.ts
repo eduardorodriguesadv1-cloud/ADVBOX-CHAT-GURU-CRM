@@ -8,3 +8,98 @@
 export interface HealthStatus {
   status: string;
 }
+
+/**
+ * Flexible payload from ChatGuru webhook
+ */
+export interface WebhookPayload {
+  chat_number?: string;
+  name?: string;
+  status?: string;
+  agent?: string;
+  message?: string;
+  phone_id?: string;
+  account_id?: string;
+  [key: string]: unknown;
+}
+
+export interface WebhookResponse {
+  ok: boolean;
+}
+
+export type ConversationStatus =
+  (typeof ConversationStatus)[keyof typeof ConversationStatus];
+
+export const ConversationStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  waiting: "waiting",
+  resolved: "resolved",
+  closed: "closed",
+  unknown: "unknown",
+} as const;
+
+export interface Conversation {
+  id: number;
+  chatNumber: string;
+  contactName?: string;
+  status: ConversationStatus;
+  assignedAgent?: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationList {
+  conversations: Conversation[];
+  total: number;
+}
+
+export interface DashboardStats {
+  total: number;
+  open: number;
+  inProgress: number;
+  waiting: number;
+  resolved: number;
+  closed: number;
+  todayTotal: number;
+  recentActivity: Conversation[];
+}
+
+export interface CheckStatusRequest {
+  /** Phone number with country + area code e.g. 5511999999999 */
+  chatNumber: string;
+}
+
+export type CheckStatusResponseRaw = { [key: string]: unknown };
+
+export interface CheckStatusResponse {
+  chatNumber: string;
+  status?: string;
+  found: boolean;
+  raw?: CheckStatusResponseRaw;
+}
+
+export interface WebhookUrlInfo {
+  url: string;
+  instructions: string;
+}
+
+export type ListConversationsParams = {
+  status?: ListConversationsStatus;
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ListConversationsStatus =
+  (typeof ListConversationsStatus)[keyof typeof ListConversationsStatus];
+
+export const ListConversationsStatus = {
+  open: "open",
+  in_progress: "in_progress",
+  waiting: "waiting",
+  resolved: "resolved",
+  closed: "closed",
+} as const;

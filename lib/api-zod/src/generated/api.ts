@@ -14,3 +14,121 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Receives incoming events/data from ChatGuru chatbot CRM actions
+ * @summary Receive ChatGuru webhook
+ */
+export const ChatguruWebhookBody = zod
+  .object({
+    chat_number: zod.string().optional(),
+    name: zod.string().optional(),
+    status: zod.string().optional(),
+    agent: zod.string().optional(),
+    message: zod.string().optional(),
+    phone_id: zod.string().optional(),
+    account_id: zod.string().optional(),
+  })
+  .describe("Flexible payload from ChatGuru webhook");
+
+export const ChatguruWebhookResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Returns a paginated list of stored conversations
+ * @summary List all conversations
+ */
+export const listConversationsQueryLimitDefault = 50;
+export const listConversationsQueryOffsetDefault = 0;
+
+export const ListConversationsQueryParams = zod.object({
+  status: zod
+    .enum(["open", "in_progress", "waiting", "resolved", "closed"])
+    .optional(),
+  search: zod.coerce.string().optional(),
+  limit: zod.coerce.number().default(listConversationsQueryLimitDefault),
+  offset: zod.coerce.number().default(listConversationsQueryOffsetDefault),
+});
+
+export const ListConversationsResponse = zod.object({
+  conversations: zod.array(
+    zod.object({
+      id: zod.number(),
+      chatNumber: zod.string(),
+      contactName: zod.string().optional(),
+      status: zod.enum([
+        "open",
+        "in_progress",
+        "waiting",
+        "resolved",
+        "closed",
+        "unknown",
+      ]),
+      assignedAgent: zod.string().optional(),
+      lastMessage: zod.string().optional(),
+      lastMessageAt: zod.coerce.date().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
+ * Returns aggregate stats for the monitoring dashboard
+ * @summary Get monitoring stats
+ */
+export const GetStatsResponse = zod.object({
+  total: zod.number(),
+  open: zod.number(),
+  inProgress: zod.number(),
+  waiting: zod.number(),
+  resolved: zod.number(),
+  closed: zod.number(),
+  todayTotal: zod.number(),
+  recentActivity: zod.array(
+    zod.object({
+      id: zod.number(),
+      chatNumber: zod.string(),
+      contactName: zod.string().optional(),
+      status: zod.enum([
+        "open",
+        "in_progress",
+        "waiting",
+        "resolved",
+        "closed",
+        "unknown",
+      ]),
+      assignedAgent: zod.string().optional(),
+      lastMessage: zod.string().optional(),
+      lastMessageAt: zod.coerce.date().optional(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Check a chat status via ChatGuru API
+ */
+export const CheckChatStatusBody = zod.object({
+  chatNumber: zod
+    .string()
+    .describe("Phone number with country + area code e.g. 5511999999999"),
+});
+
+export const CheckChatStatusResponse = zod.object({
+  chatNumber: zod.string(),
+  status: zod.string().optional(),
+  found: zod.boolean(),
+  raw: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+/**
+ * @summary Get the webhook URL to configure in ChatGuru
+ */
+export const GetWebhookUrlResponse = zod.object({
+  url: zod.string(),
+  instructions: zod.string(),
+});
