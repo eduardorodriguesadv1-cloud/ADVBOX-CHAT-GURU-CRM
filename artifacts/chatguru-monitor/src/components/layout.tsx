@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, MessageSquareText, Search, Settings } from "lucide-react";
+import { LayoutDashboard, MessageSquareText, Search, SendHorizonal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
@@ -13,6 +13,7 @@ export function Layout({ children }: LayoutProps) {
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
     { name: "Conversas", href: "/conversations", icon: MessageSquareText },
+    { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
     { name: "Consultar Número", href: "/check", icon: Search },
   ];
 

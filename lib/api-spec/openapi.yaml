@@ -140,6 +140,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/CheckStatusResponse"
 
+  /chatguru/send-message:
+    post:
+      operationId: sendMessage
+      tags: [chatguru]
+      summary: Send a message to a lead via ChatGuru API
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: Message send result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendMessageResponse"
+
   /chatguru/webhook-url:
     get:
       operationId: getWebhookUrl
@@ -295,6 +314,33 @@ components:
       required:
         - chatNumber
         - found
+
+    SendMessageRequest:
+      type: object
+      properties:
+        chatNumber:
+          type: string
+          description: Lead phone number e.g. 5511999999999
+        message:
+          type: string
+          description: Text message to send
+      required:
+        - chatNumber
+        - message
+
+    SendMessageResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        messageId:
+          type: string
+        status:
+          type: string
+        error:
+          type: string
+      required:
+        - ok
 
     WebhookUrlInfo:
       type: object

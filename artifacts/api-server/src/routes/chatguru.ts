@@ -243,6 +243,48 @@ router.post("/check-status", async (req: Request, res: Response) => {
   }
 });
 
+router.post("/send-message", async (req: Request, res: Response) => {
+  const { chatNumber, message } = req.body ?? {};
+  if (!chatNumber || !message) {
+    res.status(400).json({ ok: false, error: "chatNumber e message são obrigatórios" });
+    return;
+  }
+
+  try {
+    // ChatGuru requires send_date in format YYYY-MM-DD HH:MM
+    // Schedule 1 minute in the future to ensure it's accepted
+    const sendDate = new Date(Date.now() + 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const sendDateStr = `${sendDate.getFullYear()}-${pad(sendDate.getMonth() + 1)}-${pad(sendDate.getDate())} ${pad(sendDate.getHours())}:${pad(sendDate.getMinutes())}`;
+
+    const params = new URLSearchParams({
+      key: API_KEY,
+      account_id: ACCOUNT_ID,
+      phone_id: PHONE_ID,
+      action: "message_send",
+      chat_number: chatNumber,
+      text: message,
+      send_date: sendDateStr,
+    });
+
+    req.log.info({ chatNumber, sendDateStr }, "Sending message via ChatGuru API");
+    const response = await fetch(`${CHATGURU_API}?${params}`, { method: "POST" });
+    const raw = (await response.json()) as Record<string, unknown>;
+    req.log.info({ chatNumber, raw }, "ChatGuru send-message response");
+
+    const ok = raw.result === "success" || raw.code === 201 || raw.code === 200;
+    res.json({
+      ok,
+      messageId: raw.message_id ?? null,
+      status: raw.message_status ?? null,
+      error: ok ? undefined : (raw.description ?? "Erro desconhecido"),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error sending message via ChatGuru");
+    res.status(500).json({ ok: false, error: "Erro ao enviar mensagem" });
+  }
+});
+
 router.get("/webhook-url", (req: Request, res: Response) => {
   const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "seu-dominio.replit.app";
   const url = `https://${domains}/api/chatguru/webhook`;
