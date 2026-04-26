@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, conversationsTable, webhookEventsTable } from "@workspace/db";
+import { db, conversationsTable, webhookEventsTable, whatsappNumbersTable, agentsTable } from "@workspace/db";
 import { eq, desc, count, and, like, sql, gte } from "drizzle-orm";
 import {
   ChatguruWebhookBody,
@@ -7,6 +7,7 @@ import {
   CheckChatStatusBody,
 } from "@workspace/api-zod";
 import { logger } from "../lib/logger";
+import { identifyCampaign } from "../lib/campaign";
 
 const router = Router();
 
@@ -60,6 +61,24 @@ router.post("/webhook", async (req: Request, res: Response) => {
       }
       const hasContext = Object.keys(contextData).length > 0;
 
+      // Identificar número de WhatsApp (origem)
+      const rawPhoneId = raw.phone_id ?? raw.celular_destino ?? null;
+      let whatsappNumberId: number | null = null;
+      if (rawPhoneId) {
+        const phoneClean = String(rawPhoneId).replace(/\D/g, "");
+        const numRow = await db.select().from(whatsappNumbersTable)
+          .where(eq(whatsappNumbersTable.number, phoneClean)).limit(1);
+        if (numRow.length > 0) whatsappNumberId = numRow[0].id;
+      }
+
+      // Identificar agente pelo nome
+      let agentId: number | null = null;
+      if (agentName) {
+        const agentRow = await db.select().from(agentsTable)
+          .where(eq(agentsTable.name, agentName)).limit(1);
+        if (agentRow.length > 0) agentId = agentRow[0].id;
+      }
+
       const existing = await db
         .select()
         .from(conversationsTable)
@@ -74,21 +93,31 @@ router.post("/webhook", async (req: Request, res: Response) => {
             contactName: contactName ?? existing[0].contactName,
             status,
             assignedAgent: agentName ?? existing[0].assignedAgent,
+            agentId: agentId ?? existing[0].agentId,
             lastMessage: lastMsg ?? existing[0].lastMessage,
             lastMessageAt: new Date(),
+            whatsappNumberId: whatsappNumberId ?? existing[0].whatsappNumberId,
             contextData: hasContext ? { ...prevContext, ...contextData } : existing[0].contextData,
             updatedAt: new Date(),
           })
           .where(eq(conversationsTable.chatNumber, String(chatNumber)));
       } else {
+        // Lead novo — identificar campanha pela primeira mensagem
+        const firstMsg = lastMsg ?? null;
+        const campaign = firstMsg ? identifyCampaign(firstMsg) : "INDEFINIDA";
+
         await db.insert(conversationsTable).values({
           chatNumber: String(chatNumber),
           contactName: contactName ?? null,
           status,
           assignedAgent: agentName ?? null,
-          lastMessage: lastMsg ?? null,
+          agentId,
+          lastMessage: firstMsg,
           lastMessageAt: new Date(),
           contextData: hasContext ? contextData : null,
+          whatsappNumberId,
+          firstMessage: firstMsg,
+          campaign,
         });
       }
     }

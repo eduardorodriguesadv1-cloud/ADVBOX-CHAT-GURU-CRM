@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, MessageSquareText, Search, SendHorizonal } from "lucide-react";
+import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
@@ -10,11 +10,24 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
 
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Conversas", href: "/conversations", icon: MessageSquareText },
-    { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
-    { name: "Consultar Número", href: "/check", icon: Search },
+  const navSections = [
+    {
+      label: "Principal",
+      items: [
+        { name: "Dashboard", href: "/", icon: LayoutDashboard },
+        { name: "Conversas", href: "/conversations", icon: MessageSquareText },
+        { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
+      ],
+    },
+    {
+      label: "Configuração",
+      items: [
+        { name: "Equipe", href: "/team", icon: Users },
+        { name: "Números", href: "/numbers", icon: Smartphone },
+        { name: "Tags", href: "/tags", icon: Tag },
+        { name: "Consultar Número", href: "/check", icon: Search },
+      ],
+    },
   ];
 
   return (
@@ -29,28 +42,34 @@ export function Layout({ children }: LayoutProps) {
             Monitor
           </div>
         </div>
-        <div className="px-4 py-6 space-y-1">
-          <div className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-4 px-2">
-            Navegação
-          </div>
-          {navigation.map((item) => {
-            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                )}
-              >
-                <item.icon className="w-5 h-5" />
-                {item.name}
-              </Link>
-            );
-          })}
+        <div className="px-4 py-4 space-y-4">
+          {navSections.map(section => (
+            <div key={section.label}>
+              <div className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mb-2 px-2">
+                {section.label}
+              </div>
+              <div className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      )}
+                    >
+                      <item.icon className="w-5 h-5" />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

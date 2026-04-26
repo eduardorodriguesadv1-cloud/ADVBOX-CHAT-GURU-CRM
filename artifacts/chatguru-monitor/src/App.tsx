@@ -7,6 +7,9 @@ import { Dashboard } from "@/pages/dashboard";
 import { Conversations } from "@/pages/conversations";
 import { CheckStatus } from "@/pages/check-status";
 import { Reengagement } from "@/pages/reengagement";
+import { Team } from "@/pages/team";
+import { Numbers } from "@/pages/numbers";
+import { TagsPage } from "@/pages/tags-page";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -19,6 +22,9 @@ function Router() {
         <Route path="/conversations" component={Conversations} />
         <Route path="/check" component={CheckStatus} />
         <Route path="/reengagement" component={Reengagement} />
+        <Route path="/team" component={Team} />
+        <Route path="/numbers" component={Numbers} />
+        <Route path="/tags" component={TagsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
