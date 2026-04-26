@@ -36,11 +36,13 @@ export interface MetaCampaign {
 }
 
 export interface MetaInsights {
+  date_start: string;
+  date_stop: string;
   spend: string;
   impressions: string;
   reach: string;
-  cost_per_conversation?: string;
   actions?: Array<{ action_type: string; value: string }>;
+  cost_per_action_type?: Array<{ action_type: string; value: string }>;
 }
 
 export async function fetchCampaigns(): Promise<MetaCampaign[]> {
@@ -58,7 +60,7 @@ export async function fetchCampaignMetrics(
   dateTo: string
 ): Promise<MetaInsights[]> {
   const data = await metaGet(`/${campaignId}/insights`, {
-    fields: "spend,impressions,reach,cost_per_conversation,actions",
+    fields: "date_start,date_stop,spend,impressions,reach,actions,cost_per_action_type",
     time_range: JSON.stringify({ since: dateFrom, until: dateTo }),
     time_increment: "1",
     limit: "90",
@@ -102,23 +104,37 @@ export async function syncAllCampaigns(): Promise<{ campaigns: number; metrics: 
     try {
       const insights = await fetchCampaignMetrics(c.id, dateFrom, dateTo);
       for (const ins of insights) {
-        const conversationsStarted =
-          ins.actions?.find(
-            (a) =>
-              a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
-              a.action_type === "offsite_conversion.fb_pixel_lead"
-          )?.value ?? "0";
+        const convAction = ins.actions?.find(
+          (a) =>
+            a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
+            a.action_type === "offsite_conversion.fb_pixel_lead" ||
+            a.action_type === "lead"
+        );
+        const conversationsStarted = Number(convAction?.value ?? 0);
+
+        const cpaEntry = ins.cost_per_action_type?.find(
+          (a) =>
+            a.action_type === "onsite_conversion.messaging_conversation_started_7d" ||
+            a.action_type === "offsite_conversion.fb_pixel_lead" ||
+            a.action_type === "lead"
+        );
+        const spend = Number(ins.spend ?? 0);
+        const costPerConversation = cpaEntry
+          ? String(cpaEntry.value)
+          : conversationsStarted > 0
+          ? String((spend / conversationsStarted).toFixed(2))
+          : null;
 
         await db
           .insert(campaignMetricsDailyTable)
           .values({
             campaignId: row.id,
-            date: dateTo,
+            date: ins.date_start,
             spend: ins.spend ?? "0",
             impressions: Number(ins.impressions ?? 0),
             reach: Number(ins.reach ?? 0),
-            conversationsStarted: Number(conversationsStarted),
-            costPerConversation: ins.cost_per_conversation ?? null,
+            conversationsStarted,
+            costPerConversation,
             rawInsights: ins as object,
           })
           .onConflictDoUpdate({
@@ -127,14 +143,15 @@ export async function syncAllCampaigns(): Promise<{ campaigns: number; metrics: 
               spend: ins.spend ?? "0",
               impressions: Number(ins.impressions ?? 0),
               reach: Number(ins.reach ?? 0),
-              conversationsStarted: Number(conversationsStarted),
-              costPerConversation: ins.cost_per_conversation ?? null,
+              conversationsStarted,
+              costPerConversation,
               rawInsights: ins as object,
             },
           });
         metricCount++;
       }
-    } catch {
+    } catch (err: unknown) {
+      console.error(`Meta insights error for campaign ${c.id}:`, err instanceof Error ? err.message : String(err));
     }
   }
 

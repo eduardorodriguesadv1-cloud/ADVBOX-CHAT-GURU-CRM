@@ -37,4 +37,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-META_AD_ACCOUNT_ID = "act_6541320839657528"
+META_AD_ACCOUNT_ID = "act_654132083965752"
