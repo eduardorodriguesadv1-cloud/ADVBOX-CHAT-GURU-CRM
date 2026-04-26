@@ -4,3 +4,4 @@ export * from "./conversations";
 export * from "./tags";
 export * from "./status_history";
 export * from "./daily_summaries";
+export * from "./campaigns";

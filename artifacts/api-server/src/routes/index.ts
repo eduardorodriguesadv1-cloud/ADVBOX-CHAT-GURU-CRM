@@ -6,6 +6,7 @@ import whatsappNumbersRouter from "./whatsapp-numbers";
 import tagsRouter from "./tags";
 import conversationsExtraRouter from "./conversations-extra";
 import summariesRouter from "./summaries";
+import campaignsRouter from "./campaigns";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use("/whatsapp-numbers", whatsappNumbersRouter);
 router.use("/tags", tagsRouter);
 router.use("/conversations", conversationsExtraRouter);
 router.use("/summaries", summariesRouter);
+router.use("/campaigns", campaignsRouter);
 
 export default router;

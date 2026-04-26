@@ -1,6 +1,7 @@
 import { db, conversationsTable, dailySummariesTable } from "@workspace/db";
 import { eq, and, lt, or, isNull, sql } from "drizzle-orm";
 import { generateDailySummary } from "../routes/summaries";
+import { syncAllCampaigns } from "@workspace/db/services/meta-ads";
 import { logger } from "./logger";
 
 async function checkCoolingLeads() {
@@ -75,11 +76,26 @@ function scheduleDaily(utcHour: number, utcMinute: number, fn: () => Promise<voi
   schedule();
 }
 
+async function syncMetaAds() {
+  if (!process.env["META_ACCESS_TOKEN"]) {
+    logger.info("META_ACCESS_TOKEN not set — skipping Meta Ads sync");
+    return;
+  }
+  try {
+    const result = await syncAllCampaigns();
+    logger.info(result, "Meta Ads sync completed");
+  } catch (err) {
+    logger.error({ err }, "Meta Ads sync failed");
+  }
+}
+
 export function startCronJobs() {
   logger.info("Starting cron jobs...");
   setInterval(checkCoolingLeads, 30 * 60 * 1000);
   checkCoolingLeads();
   // 23:00 UTC = 20:00 Brasília (UTC-3)
   scheduleDaily(23, 0, generateAndStoreSummary);
+  // 10:00 UTC = 07:00 Brasília (UTC-3)
+  scheduleDaily(10, 0, syncMetaAds);
   logger.info("Cron jobs started");
 }

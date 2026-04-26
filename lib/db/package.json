@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./services/meta-ads": "./src/services/meta-ads.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
