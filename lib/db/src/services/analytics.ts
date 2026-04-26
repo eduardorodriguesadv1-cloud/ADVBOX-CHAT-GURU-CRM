@@ -45,6 +45,7 @@ export interface AuditOverview {
     duplicates: number;
     unused: number;
     stale: number;
+    orphanEngagement: number;
   };
   adsets: {
     total: number;
@@ -241,15 +242,18 @@ export async function detectStaleAudiences(): Promise<DiagnosticIssue[]> {
 // ──────────────────────────────────────────────────────────────
 // 5. Low Performance Ads
 // ──────────────────────────────────────────────────────────────
+const TOP_OF_FUNNEL_OBJECTIVES = ["OUTCOME_ENGAGEMENT", "OUTCOME_AWARENESS", "LINK_CLICKS", "POST_ENGAGEMENT"];
+
 export async function detectLowPerformanceAds(): Promise<DiagnosticIssue[]> {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // Get aggregated metrics per ad for last 14 days
+  // Get aggregated metrics per ad for last 14 days — include campaign objective
   const adMetrics = await db
     .select({
       adId: adMetricsDailyTable.adId,
       adName: adsTable.name,
       adStatus: adsTable.status,
+      campaignObjective: campaignsTable.objective,
       totalSpend: sql<string>`SUM(${adMetricsDailyTable.spend})`,
       totalConversations: sql<number>`SUM(${adMetricsDailyTable.conversations})`,
       avgCtr: sql<string>`AVG(${adMetricsDailyTable.ctr})`,
@@ -257,8 +261,10 @@ export async function detectLowPerformanceAds(): Promise<DiagnosticIssue[]> {
     })
     .from(adMetricsDailyTable)
     .innerJoin(adsTable, eq(adsTable.id, adMetricsDailyTable.adId))
+    .innerJoin(adSetsTable, eq(adSetsTable.id, adsTable.adsetId))
+    .innerJoin(campaignsTable, eq(campaignsTable.id, adSetsTable.campaignId))
     .where(gte(adMetricsDailyTable.date, sql`${fourteenDaysAgo}::date`))
-    .groupBy(adMetricsDailyTable.adId, adsTable.name, adsTable.status);
+    .groupBy(adMetricsDailyTable.adId, adsTable.name, adsTable.status, campaignsTable.objective);
 
   const lowCtr: typeof adMetrics = [];
   const highFreq: typeof adMetrics = [];
@@ -270,10 +276,12 @@ export async function detectLowPerformanceAds(): Promise<DiagnosticIssue[]> {
     const freq = Number(m.avgFrequency ?? 0);
     const spend = Number(m.totalSpend ?? 0);
     const conv = Number(m.totalConversations ?? 0);
+    const isTopOfFunnel = TOP_OF_FUNNEL_OBJECTIVES.includes(m.campaignObjective ?? "");
 
     if (ctr > 0 && ctr < 0.005) lowCtr.push(m); // < 0.5%
     if (freq >= 4) highFreq.push(m);
-    if (spend >= 50 && conv === 0) noConv.push(m);
+    // Engagement/Awareness ads are intentionally conversion-free — skip them here
+    if (!isTopOfFunnel && spend >= 50 && conv === 0) noConv.push(m);
   }
 
   const issues: DiagnosticIssue[] = [];
@@ -317,8 +325,8 @@ export async function detectLowPerformanceAds(): Promise<DiagnosticIssue[]> {
       id: "no-conversion-ads",
       severity: "high",
       category: "ad",
-      title: `${noConv.length} anúncio(s) com +R$50 gastos sem conversão`,
-      description: "Investimento significativo sem nenhuma conversa gerada nos últimos 14 dias.",
+      title: `${noConv.length} anúncio(s) de Lead com +R$50 gastos sem conversão`,
+      description: "Investimento significativo em campanha de Leads sem nenhuma conversa gerada nos últimos 14 dias. (Campanhas de Engajamento são excluídas desta análise pois não têm conversão direta por estratégia.)",
       impactEstimate: `Economia potencial: R$ ${noConv.reduce((a, m) => a + Number(m.totalSpend ?? 0), 0).toFixed(2)}`,
       suggestion: "Avaliar pausa imediata e redirecionar budget para anúncios com conversão.",
       items: noConv.map((m) => ({
@@ -330,6 +338,146 @@ export async function detectLowPerformanceAds(): Promise<DiagnosticIssue[]> {
   }
 
   return issues;
+}
+
+// ──────────────────────────────────────────────────────────────
+// 5b. Orphan Engagement Audiences
+// Públicos usados em campanhas de Engajamento que NÃO estão
+// sendo usados em nenhum AdSet ATIVO de Leads — desperdício real.
+// ──────────────────────────────────────────────────────────────
+export async function detectOrphanEngagementAudiences(): Promise<DiagnosticIssue[]> {
+  // Step 1: Engagement/Awareness campaign IDs
+  const engCampaigns = await db
+    .select({ id: campaignsTable.id, name: campaignsTable.name })
+    .from(campaignsTable)
+    .where(
+      or(
+        ...TOP_OF_FUNNEL_OBJECTIVES.map((obj) => eq(campaignsTable.objective, obj))
+      )
+    );
+  if (engCampaigns.length === 0) return [];
+
+  const engCampaignIds = engCampaigns.map((c) => c.id);
+
+  // Step 2: AdSets belonging to those campaigns
+  const engAdsets = await db
+    .select({ id: adSetsTable.id })
+    .from(adSetsTable)
+    .where(inArray(adSetsTable.campaignId, engCampaignIds));
+  if (engAdsets.length === 0) return [];
+
+  const engAdsetIds = engAdsets.map((a) => a.id);
+
+  // Step 3: Audiences INCLUDED in engagement adsets
+  const audiencesInEng = await db
+    .select({
+      audienceId: audienceUsageTable.audienceId,
+      audienceName: customAudiencesTable.name,
+      audienceType: customAudiencesTable.type,
+    })
+    .from(audienceUsageTable)
+    .innerJoin(customAudiencesTable, eq(customAudiencesTable.id, audienceUsageTable.audienceId))
+    .where(
+      and(
+        inArray(audienceUsageTable.adsetId, engAdsetIds),
+        eq(audienceUsageTable.type, "INCLUDED")
+      )
+    );
+  if (audiencesInEng.length === 0) return [];
+
+  // Deduplicate by audienceId
+  const seenIds = new Set<number>();
+  const uniqueEngAudiences = audiencesInEng.filter((a) => {
+    if (seenIds.has(a.audienceId)) return false;
+    seenIds.add(a.audienceId);
+    return true;
+  });
+
+  // Step 4: Active Leads campaign adsets
+  const leadsCampaigns = await db
+    .select({ id: campaignsTable.id })
+    .from(campaignsTable)
+    .where(eq(campaignsTable.objective, "OUTCOME_LEADS"));
+
+  if (leadsCampaigns.length === 0) {
+    // No leads campaigns at all — all engagement audiences are orphaned
+    return [
+      {
+        id: "orphan-eng-audiences",
+        severity: "high",
+        category: "audience",
+        title: `${uniqueEngAudiences.length} público(s) de Engajamento sem campanha de Leads ativa`,
+        description: "Esses públicos estão sendo usados em campanhas de Engajamento mas não existem campanhas de Leads ativas para aproveitá-los.",
+        impactEstimate: "Público quente sendo desperdiçado — sem conversão no funil",
+        suggestion: "Criar campanhas de Leads ativas usando esses públicos como audiência de remarketing.",
+        items: uniqueEngAudiences.map((a) => ({ id: a.audienceId, name: a.audienceName, detail: a.audienceType ?? undefined })),
+      },
+    ];
+  }
+
+  const leadsCampaignIds = leadsCampaigns.map((c) => c.id);
+
+  const activeLeadsAdsets = await db
+    .select({ id: adSetsTable.id })
+    .from(adSetsTable)
+    .where(
+      and(
+        inArray(adSetsTable.campaignId, leadsCampaignIds),
+        eq(adSetsTable.status, "ACTIVE")
+      )
+    );
+
+  if (activeLeadsAdsets.length === 0) {
+    return [
+      {
+        id: "orphan-eng-audiences",
+        severity: "high",
+        category: "audience",
+        title: `${uniqueEngAudiences.length} público(s) de Engajamento sem AdSet de Leads ativo`,
+        description: "Esses públicos alimentam campanhas de Engajamento mas nenhum AdSet de Leads está ativo para convertê-los.",
+        impactEstimate: "Público quente sendo desperdiçado — sem conversão no funil",
+        suggestion: "Ativar ou criar AdSets de Leads usando esses públicos como audiência de remarketing.",
+        items: uniqueEngAudiences.map((a) => ({ id: a.audienceId, name: a.audienceName, detail: a.audienceType ?? undefined })),
+      },
+    ];
+  }
+
+  const activeLeadsAdsetIds = activeLeadsAdsets.map((a) => a.id);
+
+  // Step 5: Audiences used in ACTIVE leads adsets
+  const audiencesInLeads = await db
+    .select({ audienceId: audienceUsageTable.audienceId })
+    .from(audienceUsageTable)
+    .where(
+      and(
+        inArray(audienceUsageTable.adsetId, activeLeadsAdsetIds),
+        eq(audienceUsageTable.type, "INCLUDED")
+      )
+    );
+
+  const leadsAudienceIdSet = new Set(audiencesInLeads.map((a) => a.audienceId));
+
+  // Step 6: Orphaned = in engagement but NOT in any active leads adset
+  const orphaned = uniqueEngAudiences.filter((a) => !leadsAudienceIdSet.has(a.audienceId));
+
+  if (orphaned.length === 0) return [];
+
+  return [
+    {
+      id: "orphan-eng-audiences",
+      severity: "high",
+      category: "audience",
+      title: `${orphaned.length} público(s) de Engajamento não alimentando nenhum Leads ativo`,
+      description: "Esses públicos estão sendo usados em campanhas de Engajamento (topo de funil) mas NÃO estão incluídos em nenhum AdSet ativo de campanha de Leads. O público quente gerado está sendo desperdiçado.",
+      impactEstimate: "Cada público órfão representa topo de funil sem conversão — impacto direto no CPL",
+      suggestion: "Adicionar esses públicos como audiência de remarketing em AdSets ativos de campanha de Leads.",
+      items: orphaned.map((a) => ({
+        id: a.audienceId,
+        name: a.audienceName,
+        detail: a.audienceType ?? undefined,
+      })),
+    },
+  ];
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -383,16 +531,17 @@ export async function runFullDiagnostics(): Promise<{
   overview: AuditOverview;
   audiencesWithIssues: AudienceWithIssues[];
 }> {
-  const [dupAud, unusedAud, overlap, stale, lowPerf, dupAds] = await Promise.all([
+  const [dupAud, unusedAud, overlap, stale, lowPerf, dupAds, orphanEng] = await Promise.all([
     detectDuplicateAudiences(),
     detectUnusedAudiences(),
     detectAudienceOverlap(),
     detectStaleAudiences(),
     detectLowPerformanceAds(),
     detectDuplicateAds(),
+    detectOrphanEngagementAudiences(),
   ]);
 
-  const allIssues = [...dupAud, ...unusedAud, ...overlap, ...stale, ...lowPerf, ...dupAds];
+  const allIssues = [...dupAud, ...unusedAud, ...overlap, ...stale, ...lowPerf, ...dupAds, ...orphanEng];
 
   // Counts for overview
   const [audienceCount, adsetCount, adCount] = await Promise.all([
@@ -408,6 +557,7 @@ export async function runFullDiagnostics(): Promise<{
 
   const dupAudItems = dupAud.flatMap((i) => i.items);
   const unusedItems = unusedAud.flatMap((i) => i.items);
+  const orphanEngItems = orphanEng.flatMap((i) => i.items);
   const lowCtrIssue = lowPerf.find((i) => i.id === "low-ctr-ads");
   const highFreqIssue = lowPerf.find((i) => i.id === "high-frequency-ads");
   const noConvIssue = lowPerf.find((i) => i.id === "no-conversion-ads");
@@ -419,6 +569,7 @@ export async function runFullDiagnostics(): Promise<{
       duplicates: dupAudItems.length,
       unused: unusedItems.length,
       stale: stale.flatMap((i) => i.items).length,
+      orphanEngagement: orphanEngItems.length,
     },
     adsets: {
       total: Number(adsetCount[0]?.count ?? 0),
@@ -456,12 +607,14 @@ export async function runFullDiagnostics(): Promise<{
   const dupAudIds = new Set(dupAudItems.map((i) => Number(i.id)));
   const unusedAudIds = new Set(unusedItems.map((i) => Number(i.id)));
   const staleAudIds = new Set(stale.flatMap((i) => i.items).map((i) => Number(i.id)));
+  const orphanEngIds = new Set(orphanEngItems.map((i) => Number(i.id)));
 
   const audiencesWithIssues: AudienceWithIssues[] = allAudiences.map((a) => {
     const issues: string[] = [];
     if (dupAudIds.has(a.id)) issues.push("Duplicado");
     if (unusedAudIds.has(a.id)) issues.push("Não usado");
     if (staleAudIds.has(a.id)) issues.push("Em preenchimento");
+    if (orphanEngIds.has(a.id)) issues.push("Engajamento órfão");
     return { ...a, issues, adsetCount: Number(a.adsetCount ?? 0) };
   });
 
@@ -498,6 +651,19 @@ export async function buildRecommendations(issues: DiagnosticIssue[]): Promise<R
       detail: issue.suggestion,
       impact: issue.impactEstimate,
       items: issue.items,
+    });
+  }
+
+  // High severity — orphan engagement audiences
+  const orphanEng = high.find((i) => i.id === "orphan-eng-audiences");
+  if (orphanEng && orphanEng.items.length > 0) {
+    recs.push({
+      id: "rec-link-orphan-audiences",
+      priority: priority++,
+      title: `Conectar ${orphanEng.items.length} público(s) de Engajamento a campanhas de Leads`,
+      detail: orphanEng.suggestion,
+      impact: orphanEng.impactEstimate,
+      items: orphanEng.items,
     });
   }
 

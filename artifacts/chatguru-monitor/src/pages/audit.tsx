@@ -15,7 +15,7 @@ const DONE_KEY = "audit_done_items";
 // ────────────────────────────────────────────────
 type IssueSeverity = "critical" | "high" | "medium" | "low";
 type AuditTab = "overview" | "audiences" | "diagnostico" | "recomendacoes";
-type AudienceFilter = "all" | "duplicate" | "unused" | "stale";
+type AudienceFilter = "all" | "duplicate" | "unused" | "stale" | "orphan";
 
 interface DiagnosticIssue {
   id: string;
@@ -43,7 +43,7 @@ interface AudienceWithIssues {
 }
 
 interface AuditOverview {
-  audiences: { total: number; duplicates: number; unused: number; stale: number };
+  audiences: { total: number; duplicates: number; unused: number; stale: number; orphanEngagement: number };
   adsets: { total: number; withOverlap: number };
   ads: { total: number; lowCtr: number; highFrequency: number; noConversions: number; duplicates: number };
   totalIssues: number;
@@ -287,6 +287,7 @@ export function AuditPage() {
     if (audienceFilter === "duplicate") return audiences.filter((a) => a.issues.includes("Duplicado"));
     if (audienceFilter === "unused") return audiences.filter((a) => a.issues.includes("Não usado"));
     if (audienceFilter === "stale") return audiences.filter((a) => a.issues.includes("Em preenchimento"));
+    if (audienceFilter === "orphan") return audiences.filter((a) => a.issues.includes("Engajamento órfão"));
     return audiences;
   }, [audiences, audienceFilter]);
 
@@ -421,6 +422,9 @@ export function AuditPage() {
                         <div className="flex justify-between"><span>Duplicados</span><span className="font-semibold">{o.audiences.duplicates}</span></div>
                         <div className="flex justify-between"><span>Não utilizados</span><span className="font-semibold">{o.audiences.unused}</span></div>
                         <div className="flex justify-between"><span>Em preenchimento</span><span className="font-semibold">{o.audiences.stale}</span></div>
+                        {(o.audiences.orphanEngagement ?? 0) > 0 && (
+                          <div className="flex justify-between text-orange-600"><span>Eng. sem Leads ativo</span><span className="font-semibold">{o.audiences.orphanEngagement}</span></div>
+                        )}
                       </div>
                     </div>
 
@@ -474,6 +478,7 @@ export function AuditPage() {
                   { key: "duplicate" as AudienceFilter, label: `Duplicados (${o?.audiences.duplicates ?? 0})` },
                   { key: "unused" as AudienceFilter, label: `Não usados (${o?.audiences.unused ?? 0})` },
                   { key: "stale" as AudienceFilter, label: `Processando (${o?.audiences.stale ?? 0})` },
+                  { key: "orphan" as AudienceFilter, label: `Eng. órfão (${o?.audiences.orphanEngagement ?? 0})` },
                 ] as { key: AudienceFilter; label: string }[]).map((f) => (
                   <button
                     key={f.key}
