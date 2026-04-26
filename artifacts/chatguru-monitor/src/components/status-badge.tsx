@@ -1,9 +1,8 @@
 import React from "react";
 import { Badge } from "@/components/ui/badge";
-import { type ConversationStatus } from "@workspace/api-client-react";
 
 interface StatusBadgeProps {
-  status: ConversationStatus;
+  status: string;
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {

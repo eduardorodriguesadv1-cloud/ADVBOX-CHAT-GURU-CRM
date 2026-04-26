@@ -19,6 +19,9 @@ export const conversationsTable = pgTable("conversations", {
   campaign: text("campaign"), // LAUDO_SUS_PE / AUX_DOENCA / etc / INDEFINIDA
   firstMessage: text("first_message"),
   discardReason: text("discard_reason"),
+  notes: text("notes"), // anotações livres
+  coolingAlert: text("cooling_alert"), // null | "esfriando" | "urgente"
+  coolingAlertAt: timestamp("cooling_alert_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

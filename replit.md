@@ -36,15 +36,18 @@ pnpm workspace monorepo using TypeScript. CRM dashboard for Eduardo Rodrigues Ad
 
 ## Database Schema
 
-- **conversations** — leads/conversations from WhatsApp (chatNumber, status, assignedAgent, agentId, whatsappNumberId, campaign, firstMessage, contextData)
+- **conversations** — leads/conversations from WhatsApp (chatNumber, status, assignedAgent, agentId, whatsappNumberId, campaign, firstMessage, notes, coolingAlert, coolingAlertAt)
 - **agents** — atendentes (Thiago Tavares, Tammyres = Comercial; Letícia, Marília, Alice, Cau = Atendimento)
 - **whatsapp_numbers** — números WhatsApp (Comercial 81918506470, Base 81993045260)
 - **tags** — classificação de leads em 5 categorias (ORIGEM, SETOR, STATUS, CASO, MOTIVO_DESCARTE)
 - **conversation_tags** — many-to-many entre conversations e tags
 - **webhook_events** — log de webhooks recebidos do ChatGuru
+- **status_history** — histórico de mudanças de status de cada conversa
+- **daily_summaries** — resumos diários gerados às 20h (Brasília)
 
 ## API Routes
 
+### Core
 - `GET/POST /api/agents` — CRUD atendentes
 - `PATCH/DELETE /api/agents/:id`
 - `GET /api/whatsapp-numbers` — listar números com contagem de leads
@@ -57,15 +60,39 @@ pnpm workspace monorepo using TypeScript. CRM dashboard for Eduardo Rodrigues Ad
 - `POST /api/chatguru/send-message` — enviar mensagem via ChatGuru API
 - `GET/POST /api/chatguru/check-status` — consultar status de número
 
+### Onda 2 (novos)
+- `GET /api/conversations/search?q=` — busca full-text em leads
+- `GET /api/conversations/export` — exportar CSV de leads
+- `GET /api/conversations/alerts/list` — leads urgentes e esfriando
+- `GET /api/conversations/:id` — ficha completa do lead + histórico
+- `PATCH /api/conversations/:id` — atualizar notas/status/agente
+- `GET /api/conversations/:id/history` — histórico de status
+- `GET /api/summaries` — listar resumos diários (últimos 30)
+- `GET /api/summaries/latest` — resumo mais recente
+- `POST /api/summaries/generate` — gerar resumo agora
+
 ## Frontend Pages
 
-- `/` — Dashboard (stats, funil, conversas recentes)
+- `/` — Dashboard (stats, funil, alertas banner, campanhas, resumo de ontem, export)
 - `/conversations` — Lista de conversas com filtros
+- `/alerts` — Leads urgentes e esfriando (cron a cada 30min)
+- `/summaries` — Resumos diários (gerado às 20h, botão Gerar Agora)
 - `/reengagement` — Envio em massa para leads parados
 - `/team` — Gerenciar equipe (atendentes por setor)
 - `/numbers` — Números de WhatsApp com contagem de leads
 - `/tags` — Tags categorizadas com uso
 - `/check` — Consultar status de número no ChatGuru
+
+## Frontend Components (Onda 2)
+
+- `components/search-modal.tsx` — busca global Ctrl+K/⌘K com navegação por teclado
+- `components/lead-modal.tsx` — ficha completa do lead com anotações auto-save e timeline de status
+- `lib/campaignColors.tsx` — mapa de campanhas com cores, emojis e componente CampaignTag
+
+## Cron Jobs (API Server)
+
+- **Cooling check** — a cada 30 min: marca leads como urgente (open +2h) ou esfriando (waiting/in_progress +24h)
+- **Daily summary** — às 23:00 UTC (20:00 Brasília): gera e persiste resumo do dia
 
 ## External Integrations
 
@@ -75,5 +102,6 @@ pnpm workspace monorepo using TypeScript. CRM dashboard for Eduardo Rodrigues Ad
 ## Campaign Identification
 
 `artifacts/api-server/src/lib/campaign.ts` — identifica campanha de origem pelo conteúdo da primeira mensagem do lead.
+Campanhas: LAUDO_SUS_PE (🟢), LAUDO_SUS_GERAL (🌿), AUX_DOENCA (🟣), AUX_ACIDENTE (🟠), PERICIA_NEGADA (🔴), INDEFINIDA (⚪).
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

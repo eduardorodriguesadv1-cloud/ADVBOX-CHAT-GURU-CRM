@@ -1,15 +1,16 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag, Moon, Sun, Bell } from "lucide-react";
+import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag, Moon, Sun, Bell, AlertTriangle, BarChart2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { useBrowserNotifications } from "@/hooks/use-notifications";
 
 interface LayoutProps {
   children: React.ReactNode;
+  onSearch?: () => void;
 }
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({ children, onSearch }: LayoutProps) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { requestPermission } = useBrowserNotifications();
@@ -20,6 +21,8 @@ export function Layout({ children }: LayoutProps) {
       items: [
         { name: "Dashboard", href: "/", icon: LayoutDashboard },
         { name: "Conversas", href: "/conversations", icon: MessageSquareText },
+        { name: "Alertas", href: "/alerts", icon: AlertTriangle },
+        { name: "Resumos", href: "/summaries", icon: BarChart2 },
         { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
       ],
     },
@@ -41,13 +44,27 @@ export function Layout({ children }: LayoutProps) {
         <div className="h-16 flex items-center px-6 border-b border-sidebar-border flex-shrink-0">
           <div className="flex items-center gap-2 font-bold text-lg text-sidebar-foreground flex-1 min-w-0">
             <div className="w-8 h-8 rounded-md bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground flex-shrink-0 text-sm font-bold">
-              CG
+              ER
             </div>
-            <span className="truncate">Monitor</span>
+            <span className="truncate">CRM Eduardo</span>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {/* Search button */}
+        {onSearch && (
+          <div className="px-4 pt-3 pb-1">
+            <button
+              onClick={onSearch}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-sidebar-accent/30 border border-sidebar-border text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors text-sm"
+            >
+              <Search className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1 text-left">Buscar lead...</span>
+              <kbd className="text-[10px] border border-sidebar-border rounded px-1 py-0.5 bg-sidebar-accent/30">⌘K</kbd>
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {navSections.map(section => (
             <div key={section.label}>
               <div className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mb-2 px-2">
@@ -93,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
           >
             <Bell className="w-4 h-4" />
           </button>
-          <span className="text-xs text-sidebar-foreground/30 ml-auto">v1.0</span>
+          <span className="text-xs text-sidebar-foreground/30 ml-auto">v2.0</span>
         </div>
       </div>
 
@@ -103,18 +120,46 @@ export function Layout({ children }: LayoutProps) {
         <header className="h-14 border-b bg-card flex items-center justify-between px-4 flex-shrink-0 md:hidden">
           <div className="font-bold text-base text-foreground flex items-center gap-2">
             <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
-              CG
+              ER
             </div>
-            Monitor
+            CRM Eduardo
           </div>
           <div className="flex items-center gap-1">
+            {onSearch && (
+              <button onClick={onSearch} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <Search className="w-4 h-4" />
+              </button>
+            )}
             <button onClick={toggleTheme} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-4 md:p-8">
+        {/* Mobile bottom nav */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border flex items-center justify-around h-14 px-2">
+          {[
+            { href: "/", icon: LayoutDashboard, label: "Home" },
+            { href: "/conversations", icon: MessageSquareText, label: "Leads" },
+            { href: "/alerts", icon: AlertTriangle, label: "Alertas" },
+            { href: "/summaries", icon: BarChart2, label: "Resumos" },
+            { href: "/team", icon: Users, label: "Equipe" },
+          ].map(item => {
+            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            return (
+              <Link key={item.href} href={item.href}
+                className={cn("flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors text-xs",
+                  isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        <main className="flex-1 overflow-auto p-4 md:p-8 pb-20 md:pb-8">
           <div className="mx-auto max-w-6xl w-full">
             {children}
           </div>

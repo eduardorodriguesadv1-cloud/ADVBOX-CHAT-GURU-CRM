@@ -1,54 +1,92 @@
-import React from "react";
+import React, { useState } from "react";
 import { useGetStats, getGetStatsQueryKey, useGetWebhookUrl, getGetWebhookUrlQueryKey } from "@workspace/api-client-react";
 import { StatusBadge } from "@/components/status-badge";
 import { formatPhone, formatDate } from "@/lib/utils";
-import { RefreshCw, Copy, AlertCircle } from "lucide-react";
+import { RefreshCw, Copy, AlertCircle, Download, AlertTriangle, Flame } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCampaign, CampaignTag } from "@/lib/campaignColors";
+import { timeAgo, silenceLevel } from "@/lib/time";
+import { LeadModal } from "@/components/lead-modal";
+
+const BASE_URL = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 
 function getInitials(name: string) {
-  return name
-    .replace(/[^\w\s]/g, "")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
+  return name.replace(/[^\w\s]/g, "").split(" ").filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
 }
 
-const AVATAR_COLORS = [
-  "#3b82f6","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#ec4899","#6366f1",
-];
+const AVATAR_COLORS = ["#3b82f6","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#ec4899","#6366f1"];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % AVATAR_COLORS.length;
   return AVATAR_COLORS[Math.abs(h)];
 }
 
-function OrigemBadge({ origem }: { origem?: string }) {
-  if (!origem) return null;
-  const isAds = origem.toLowerCase().includes("ads") || origem.toLowerCase().includes("meta") || origem.toLowerCase().includes("trafego");
+function NewBadge({ createdAt }: { createdAt?: string | null }) {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!createdAt) return;
+    const age = Date.now() - new Date(createdAt).getTime();
+    const isNew = age < 30 * 60 * 1000; // 30 min
+    setVisible(isNew);
+    if (isNew) {
+      const timeout = setTimeout(() => setVisible(false), 30 * 60 * 1000 - age);
+      return () => clearTimeout(timeout);
+    }
+  }, [createdAt]);
+
+  if (!visible) return null;
   return (
-    <span
-      style={{
-        background: isAds ? "#ede9fe" : "#e0f2fe",
-        color: isAds ? "#5b21b6" : "#0369a1",
-        borderRadius: 20,
-        padding: "1px 8px",
-        fontSize: 11,
-        fontWeight: 500,
-        whiteSpace: "nowrap" as const,
-      }}
-    >
-      {isAds ? "📣 " : "🏢 "}
-      {origem}
+    <span className="inline-flex items-center gap-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse shadow-sm shadow-red-400/50" title={`Lead recebido há ${timeAgo(createdAt)}`}>
+      NOVO
     </span>
   );
 }
 
+function CoolingBadge({ alert }: { alert?: string | null }) {
+  if (!alert) return null;
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${alert === "urgente" ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400" : "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"}`}>
+      {alert === "urgente" ? "🚨" : "🥶"}
+    </span>
+  );
+}
+
+function useAlertCounts() {
+  const [counts, setCounts] = React.useState({ urgent: 0, cooling: 0 });
+  React.useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetch(`${BASE_URL}/api/conversations/alerts/list`);
+        const d = await r.json();
+        setCounts(d.counts ?? { urgent: 0, cooling: 0 });
+      } catch {}
+    };
+    load();
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+  return counts;
+}
+
+function useLatestSummary() {
+  const [summary, setSummary] = React.useState<any>(null);
+  React.useEffect(() => {
+    fetch(`${BASE_URL}/api/summaries/latest`)
+      .then(r => r.json())
+      .then(d => setSummary(d.summary ?? null))
+      .catch(() => {});
+  }, []);
+  return summary;
+}
+
 export function Dashboard() {
   const { toast } = useToast();
+  const [selectedLead, setSelectedLead] = useState<number | null>(null);
+  const alertCounts = useAlertCounts();
+  const latestSummary = useLatestSummary();
 
   const {
     data: stats,
@@ -57,10 +95,7 @@ export function Dashboard() {
     refetch: refetchStats,
     isFetching,
   } = useGetStats({
-    query: {
-      queryKey: getGetStatsQueryKey(),
-      refetchInterval: 30000,
-    },
+    query: { queryKey: getGetStatsQueryKey(), refetchInterval: 30000 },
   });
 
   const { data: webhookInfo } = useGetWebhookUrl({
@@ -74,11 +109,11 @@ export function Dashboard() {
     }
   };
 
-  const today = new Date().toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-  });
+  const exportCsv = () => {
+    window.open(`${BASE_URL}/api/conversations/export`, "_blank");
+  };
+
+  const today = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
   const statCards = [
     { label: "Total Hoje", value: stats?.todayTotal ?? 0, icon: "👥", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
@@ -97,30 +132,31 @@ export function Dashboard() {
     { label: "Resolvidos", value: stats?.resolved ?? 0, color: "#10b981" },
   ];
 
-  const originCounts: Record<string, number> = {};
-  if (stats?.recentActivity) {
-    for (const a of stats.recentActivity) {
-      const origem = (a as any).origem || "Desconhecido";
-      originCounts[origem] = (originCounts[origem] ?? 0) + 1;
-    }
-  }
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground text-sm mt-1 capitalize">{today}</p>
         </div>
-        <button
-          onClick={() => refetchStats()}
-          disabled={isFetching}
-          className="flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportCsv}
+            className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Exportar CSV
+          </button>
+          <button
+            onClick={() => refetchStats()}
+            disabled={isFetching}
+            className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {statsError && (
@@ -131,20 +167,30 @@ export function Dashboard() {
         </Alert>
       )}
 
+      {/* Alert banner */}
+      {(alertCounts.urgent > 0 || alertCounts.cooling > 0) && (
+        <a href="/alerts" className="flex items-center gap-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors group">
+          <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">Atenção necessária</p>
+            <p className="text-xs text-red-600 dark:text-red-500">
+              {alertCounts.urgent > 0 && <><Flame className="inline w-3 h-3 mr-1" />{alertCounts.urgent} urgente{alertCounts.urgent !== 1 ? "s" : ""}</>}
+              {alertCounts.urgent > 0 && alertCounts.cooling > 0 && " • "}
+              {alertCounts.cooling > 0 && <>{alertCounts.cooling} esfriando</>}
+            </p>
+          </div>
+          <span className="text-xs text-red-500 group-hover:underline">Ver alertas →</span>
+        </a>
+      )}
+
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {statsLoading
           ? Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="rounded-xl border p-4 space-y-2">
-                <Skeleton className="h-3 w-20" />
-                <Skeleton className="h-8 w-12" />
-              </div>
+              <div key={i} className="rounded-xl border p-4 space-y-2"><Skeleton className="h-3 w-20" /><Skeleton className="h-8 w-12" /></div>
             ))
           : statCards.map((c) => (
-              <div
-                key={c.label}
-                style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: "16px" }}
-              >
+              <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: "14px 16px" }}>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs font-medium text-muted-foreground">{c.label}</span>
                   <span className="text-lg">{c.icon}</span>
@@ -155,14 +201,12 @@ export function Dashboard() {
       </div>
 
       {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Funil de Leads */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Funil + Webhook */}
         <div className="bg-card border border-border rounded-xl p-5 space-y-4">
           <h2 className="text-sm font-semibold">Funil de Leads</h2>
           {statsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
-            </div>
+            <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
           ) : (
             <div className="space-y-3">
               {funnelSteps.map((s) => (
@@ -172,54 +216,37 @@ export function Dashboard() {
                     <span className="text-xs font-semibold">{s.value}</span>
                   </div>
                   <div className="bg-muted rounded-full h-2 overflow-hidden">
-                    <div
-                      style={{
-                        height: "100%",
-                        width: total > 0 ? `${(s.value / total) * 100}%` : "0%",
-                        background: s.color,
-                        borderRadius: 99,
-                        minWidth: s.value > 0 ? 8 : 0,
-                        transition: "width 0.5s",
-                      }}
-                    />
+                    <div style={{ height: "100%", width: total > 0 ? `${(s.value / total) * 100}%` : "0%", background: s.color, borderRadius: 99, minWidth: s.value > 0 ? 8 : 0, transition: "width 0.5s" }} />
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Por Origem */}
-          {!statsLoading && Object.keys(originCounts).length > 0 && (
-            <div className="pt-4 border-t border-border space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Por Origem</p>
-              {Object.entries(originCounts).map(([origem, count], i) => {
-                const isAds = origem.toLowerCase().includes("ads") || origem.toLowerCase().includes("meta") || origem.toLowerCase().includes("trafego");
-                return (
-                  <div key={origem} className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: isAds ? "#8b5cf6" : "#06b6d4" }} />
-                      <span className="text-xs">{origem}</span>
+          {/* Legenda de campanhas */}
+          {!statsLoading && (
+            <div className="pt-3 border-t border-border">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Campanhas</p>
+              <div className="space-y-1">
+                {["LAUDO_SUS_PE","LAUDO_SUS_GERAL","AUX_DOENCA","AUX_ACIDENTE","PERICIA_NEGADA","INDEFINIDA"].map(k => {
+                  const m = getCampaign(k);
+                  return (
+                    <div key={k} className="flex items-center gap-2">
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
+                      <span className="text-xs text-muted-foreground">{m.label}</span>
                     </div>
-                    <span className="text-xs font-semibold">{count}</span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {/* Webhook URL */}
           {webhookInfo?.url && (
-            <div className="pt-4 border-t border-border space-y-2">
+            <div className="pt-3 border-t border-border space-y-2">
               <p className="text-xs font-medium text-muted-foreground">URL do Webhook</p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 px-2 py-1.5 bg-muted rounded text-xs truncate font-mono text-muted-foreground border border-border">
-                  {webhookInfo.url}
-                </code>
-                <button
-                  onClick={copyWebhook}
-                  className="p-1.5 rounded bg-muted hover:bg-muted/80 border border-border transition-colors"
-                  title="Copiar"
-                >
+                <code className="flex-1 px-2 py-1.5 bg-muted rounded text-xs truncate font-mono text-muted-foreground border border-border">{webhookInfo.url}</code>
+                <button onClick={copyWebhook} className="p-1.5 rounded bg-muted hover:bg-muted/80 border border-border transition-colors" title="Copiar">
                   <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </div>
@@ -235,85 +262,83 @@ export function Dashboard() {
           </div>
 
           {statsLoading ? (
-            <div className="space-y-4">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <Skeleton className="h-9 w-9 rounded-full" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3 w-32" />
-                    <Skeleton className="h-3 w-48" />
-                  </div>
-                  <Skeleton className="h-5 w-20 rounded-full" />
-                </div>
-              ))}
-            </div>
+            <div className="space-y-4">{Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="flex-1 space-y-1.5"><Skeleton className="h-3 w-32" /><Skeleton className="h-3 w-48" /></div><Skeleton className="h-5 w-20 rounded-full" /></div>
+            ))}</div>
           ) : stats?.recentActivity && stats.recentActivity.length > 0 ? (
             <div>
               {stats.recentActivity.map((activity, i) => {
                 const name = activity.contactName || formatPhone(activity.chatNumber);
-                const origem = (activity as any).origem as string | undefined;
+                const meta = getCampaign((activity as any).campaign);
+                const silLvl = silenceLevel(activity.lastMessageAt || activity.updatedAt);
                 return (
                   <div
                     key={activity.id}
-                    className="flex items-center gap-3 py-3"
-                    style={{ borderBottom: i < stats.recentActivity!.length - 1 ? "1px solid hsl(var(--border))" : "none" }}
+                    className="flex items-center gap-3 py-3 cursor-pointer hover:bg-muted/30 rounded-lg px-1 transition-colors -mx-1"
+                    style={{ borderBottom: i < stats.recentActivity!.length - 1 ? "1px solid hsl(var(--border))" : "none", borderLeft: `3px solid ${meta.color}`, paddingLeft: 8 }}
+                    onClick={() => setSelectedLead(activity.id)}
                   >
                     {/* Avatar */}
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: "50%",
-                        background: avatarColor(name),
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "white",
-                        fontWeight: 700,
-                        fontSize: 12,
-                        flexShrink: 0,
-                      }}
-                    >
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", background: avatarColor(name), display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
                       {getInitials(name) || "?"}
                     </div>
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-semibold text-sm">{name}</span>
-                        {activity.contactName && (
-                          <span className="text-xs text-muted-foreground">{formatPhone(activity.chatNumber)}</span>
-                        )}
+                        <NewBadge createdAt={(activity as any).createdAt} />
+                        <CoolingBadge alert={(activity as any).coolingAlert} />
                       </div>
-                      {activity.lastMessage && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">{activity.lastMessage}</p>
-                      )}
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {origem && <OrigemBadge origem={origem} />}
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <CampaignTag campaign={(activity as any).campaign} size="xs" />
                         {activity.assignedAgent && (
                           <span className="text-xs text-muted-foreground">• {activity.assignedAgent}</span>
                         )}
-                        <span className="text-xs text-muted-foreground">
-                          • {formatDate(activity.lastMessageAt || activity.updatedAt)}
-                        </span>
                       </div>
                     </div>
 
-                    {/* Status */}
-                    <div className="flex-shrink-0">
+                    {/* Status + time */}
+                    <div className="flex-shrink-0 text-right">
                       <StatusBadge status={activity.status} />
+                      <p className={`text-xs mt-1 ${silLvl === "critical" ? "text-red-500 font-semibold" : silLvl === "warning" ? "text-amber-500" : "text-muted-foreground"}`}>
+                        {timeAgo(activity.lastMessageAt || activity.updatedAt)}
+                      </p>
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              Nenhuma atividade recente registrada.
-            </div>
+            <div className="text-center py-12 text-muted-foreground text-sm">Nenhuma atividade recente registrada.</div>
           )}
         </div>
       </div>
+
+      {/* Daily Summary card */}
+      {latestSummary && (
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold">Resumo de Ontem</h2>
+            <a href="/summaries" className="text-xs text-primary hover:underline">Ver histórico →</a>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Novos leads", value: latestSummary.data.newLeadsTotal, color: "#3b82f6" },
+              { label: "Resolvidos", value: (latestSummary.data.movement?.resolved ?? 0) + (latestSummary.data.movement?.closed ?? 0), color: "#10b981" },
+              { label: "Alertas", value: (latestSummary.data.alerts?.urgent ?? 0) + (latestSummary.data.alerts?.cooling ?? 0), color: "#f59e0b" },
+              { label: "Em atendimento", value: latestSummary.data.movement?.inProgress ?? 0, color: "#06b6d4" },
+            ].map(s => (
+              <div key={s.label} className="bg-muted/30 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <LeadModal leadId={selectedLead} onClose={() => setSelectedLead(null)} />
     </div>
   );
 }
