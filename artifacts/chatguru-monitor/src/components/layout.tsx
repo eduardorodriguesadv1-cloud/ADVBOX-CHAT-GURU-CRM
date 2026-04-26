@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag, Moon, Sun, Bell, AlertTriangle, BarChart2, TrendingUp } from "lucide-react";
+import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag, Moon, Sun, Bell, AlertTriangle, BarChart2, TrendingUp, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { useBrowserNotifications } from "@/hooks/use-notifications";
@@ -30,6 +30,7 @@ export function Layout({ children, onSearch }: LayoutProps) {
       label: "Configuração",
       items: [
         { name: "Performance de Tráfego", href: "/traffic", icon: TrendingUp },
+        { name: "Auditoria de Anúncios", href: "/audit", icon: ShieldAlert },
         { name: "Equipe", href: "/team", icon: Users },
         { name: "Números", href: "/numbers", icon: Smartphone },
         { name: "Tags", href: "/tags", icon: Tag },

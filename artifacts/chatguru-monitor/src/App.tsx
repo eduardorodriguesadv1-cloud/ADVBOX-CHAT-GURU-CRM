@@ -13,6 +13,7 @@ import { TagsPage } from "@/pages/tags-page";
 import { Alerts } from "@/pages/alerts";
 import { Summaries } from "@/pages/summaries";
 import { TrafficPerformance } from "@/pages/traffic-performance";
+import { AuditPage } from "@/pages/audit";
 import NotFound from "@/pages/not-found";
 import React, { useState, useEffect, useCallback } from "react";
 import { SearchModal } from "@/components/search-modal";
@@ -56,6 +57,7 @@ function Router() {
         <Route path="/alerts" component={Alerts} />
         <Route path="/summaries" component={Summaries} />
         <Route path="/traffic" component={TrafficPerformance} />
+        <Route path="/audit" component={AuditPage} />
         <Route component={NotFound} />
       </Switch>
       <SearchModal open={searchOpen} onClose={closeSearch} onSelect={handleSelectLead} />

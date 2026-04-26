@@ -7,6 +7,7 @@ import tagsRouter from "./tags";
 import conversationsExtraRouter from "./conversations-extra";
 import summariesRouter from "./summaries";
 import campaignsRouter from "./campaigns";
+import auditRouter from "./audit";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/tags", tagsRouter);
 router.use("/conversations", conversationsExtraRouter);
 router.use("/summaries", summariesRouter);
 router.use("/campaigns", campaignsRouter);
+router.use("/audit", auditRouter);
 
 export default router;

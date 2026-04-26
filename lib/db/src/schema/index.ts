@@ -5,3 +5,4 @@ export * from "./tags";
 export * from "./status_history";
 export * from "./daily_summaries";
 export * from "./campaigns";
+export * from "./audiences";

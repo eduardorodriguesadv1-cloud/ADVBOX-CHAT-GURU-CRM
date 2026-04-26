@@ -2,6 +2,7 @@ import { db, conversationsTable, dailySummariesTable } from "@workspace/db";
 import { eq, and, lt, or, isNull, sql } from "drizzle-orm";
 import { generateDailySummary } from "../routes/summaries";
 import { syncFullCampaignData } from "@workspace/db/services/meta-ads";
+import { syncAllAudiences } from "@workspace/db/services/meta-audiences";
 import { logger } from "./logger";
 
 async function checkCoolingLeads() {
@@ -10,7 +11,6 @@ async function checkCoolingLeads() {
     const h2 = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     const h24 = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // URGENTE: Lead aberto sem nenhuma atualização há mais de 2h
     await db.update(conversationsTable)
       .set({ coolingAlert: "urgente", coolingAlertAt: now })
       .where(and(
@@ -19,7 +19,6 @@ async function checkCoolingLeads() {
         or(isNull(conversationsTable.coolingAlert), sql`${conversationsTable.coolingAlert} != 'urgente'`)
       ));
 
-    // ESFRIANDO: em atendimento ou aguardando sem mudança há mais de 24h
     await db.update(conversationsTable)
       .set({ coolingAlert: "esfriando", coolingAlertAt: now })
       .where(and(
@@ -28,7 +27,6 @@ async function checkCoolingLeads() {
         or(isNull(conversationsTable.coolingAlert), sql`${conversationsTable.coolingAlert} != 'esfriando'`)
       ));
 
-    // Limpar alerta de leads que tiveram atividade recente (últimas 2h)
     await db.update(conversationsTable)
       .set({ coolingAlert: null, coolingAlertAt: null })
       .where(and(
@@ -83,9 +81,22 @@ async function syncMetaAds() {
   }
   try {
     const result = await syncFullCampaignData();
-    logger.info(result, "Meta Ads sync completed");
+    logger.info(result, "Meta Ads full sync completed");
   } catch (err) {
     logger.error({ err }, "Meta Ads sync failed");
+  }
+}
+
+async function syncAudiences() {
+  if (!process.env["META_ACCESS_TOKEN"]) {
+    logger.info("META_ACCESS_TOKEN not set — skipping audience sync");
+    return;
+  }
+  try {
+    const result = await syncAllAudiences();
+    logger.info(result, "Custom audiences sync completed");
+  } catch (err) {
+    logger.error({ err }, "Custom audiences sync failed");
   }
 }
 
@@ -95,7 +106,9 @@ export function startCronJobs() {
   checkCoolingLeads();
   // 23:00 UTC = 20:00 Brasília (UTC-3)
   scheduleDaily(23, 0, generateAndStoreSummary);
-  // 10:00 UTC = 07:00 Brasília (UTC-3)
+  // 10:00 UTC = 07:00 Brasília (UTC-3) — sync completo de campanhas
   scheduleDaily(10, 0, syncMetaAds);
+  // 09:00 UTC = 06:00 Brasília (UTC-3) — sync de públicos customizados
+  scheduleDaily(9, 0, syncAudiences);
   logger.info("Cron jobs started");
 }

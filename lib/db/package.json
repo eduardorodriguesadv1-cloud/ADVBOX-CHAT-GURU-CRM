@@ -6,7 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./services/meta-ads": "./src/services/meta-ads.ts"
+    "./services/meta-ads": "./src/services/meta-ads.ts",
+    "./services/meta-audiences": "./src/services/meta-audiences.ts",
+    "./services/analytics": "./src/services/analytics.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
