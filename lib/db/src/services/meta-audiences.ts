@@ -32,16 +32,16 @@ export interface MetaAudience {
   name: string;
   subtype?: string;
   approximate_count?: number;
+  approximate_count_with_privacy_treatment?: number;
   delivery_status?: { code: number; description: string };
   description?: string;
-  rule?: unknown;
   time_created?: number;
 }
 
 export async function fetchCustomAudiences(): Promise<MetaAudience[]> {
   const adAccountId = getAdAccountId();
   const data = await metaGet(`/${adAccountId}/customaudiences`, {
-    fields: "id,name,subtype,approximate_count,delivery_status,description,rule,time_created",
+    fields: "id,name,subtype,approximate_count_with_privacy_treatment,delivery_status,description,time_created",
     limit: "200",
   }) as { data: MetaAudience[] };
   return data.data ?? [];
@@ -79,10 +79,10 @@ export async function syncAllAudiences(): Promise<{ audiences: number; usages: n
         name: a.name,
         type: deriveType(a.subtype),
         subtype: a.subtype ?? null,
-        approximateCount: a.approximate_count ?? null,
+        approximateCount: a.approximate_count_with_privacy_treatment ?? a.approximate_count ?? null,
         status: deriveStatus(a.delivery_status),
         description: a.description ?? null,
-        rules: (a.rule ?? null) as object | null,
+        rules: null,
         createdTime: a.time_created ? new Date(a.time_created * 1000) : null,
         updatedAt: new Date(),
       })
@@ -91,10 +91,10 @@ export async function syncAllAudiences(): Promise<{ audiences: number; usages: n
         set: {
           name: a.name,
           subtype: a.subtype ?? null,
-          approximateCount: a.approximate_count ?? null,
+          approximateCount: a.approximate_count_with_privacy_treatment ?? a.approximate_count ?? null,
           status: deriveStatus(a.delivery_status),
           description: a.description ?? null,
-          rules: (a.rule ?? null) as object | null,
+          rules: null,
           updatedAt: new Date(),
         },
       });
