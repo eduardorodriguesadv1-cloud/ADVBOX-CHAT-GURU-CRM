@@ -1,7 +1,7 @@
 import { db, conversationsTable, dailySummariesTable } from "@workspace/db";
 import { eq, and, lt, or, isNull, sql } from "drizzle-orm";
 import { generateDailySummary } from "../routes/summaries";
-import { syncAllCampaigns } from "@workspace/db/services/meta-ads";
+import { syncFullCampaignData } from "@workspace/db/services/meta-ads";
 import { logger } from "./logger";
 
 async function checkCoolingLeads() {
@@ -82,7 +82,7 @@ async function syncMetaAds() {
     return;
   }
   try {
-    const result = await syncAllCampaigns();
+    const result = await syncFullCampaignData();
     logger.info(result, "Meta Ads sync completed");
   } catch (err) {
     logger.error({ err }, "Meta Ads sync failed");
