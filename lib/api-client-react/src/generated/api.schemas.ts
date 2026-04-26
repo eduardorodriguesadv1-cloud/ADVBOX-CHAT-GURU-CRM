@@ -63,6 +63,17 @@ export interface ConversationList {
   total: number;
 }
 
+export interface StatusPipeline {
+  lead_novo: number;
+  lead_qualificado: number;
+  em_atendimento: number;
+  follow_up: number;
+  contrato_assinado: number;
+  cliente_ativo: number;
+  cliente_procedente: number;
+  lead_descartado: number;
+}
+
 export interface DashboardStats {
   total: number;
   open: number;
@@ -71,6 +82,7 @@ export interface DashboardStats {
   resolved: number;
   closed: number;
   todayTotal: number;
+  pipeline: StatusPipeline;
   recentActivity: Conversation[];
 }
 

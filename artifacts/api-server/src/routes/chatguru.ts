@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, conversationsTable, webhookEventsTable, whatsappNumbersTable, agentsTable } from "@workspace/db";
+import { db, conversationsTable, webhookEventsTable, whatsappNumbersTable, agentsTable, statusHistoryTable } from "@workspace/db";
 import { eq, desc, count, and, or, isNull, sql, gte, asc } from "drizzle-orm";
 import {
   ChatguruWebhookBody,
@@ -16,15 +16,27 @@ const API_KEY = process.env.CHATGURU_API_KEY!;
 const ACCOUNT_ID = process.env.CHATGURU_ACCOUNT_ID!;
 const PHONE_ID = process.env.CHATGURU_PHONE_ID!;
 
-function mapStatus(raw: string | undefined | null): string {
-  if (!raw) return "open";
+// Pipeline de status do CRM:
+// lead_novo → lead_qualificado → em_atendimento → follow_up
+//           → contrato_assinado → cliente_ativo → cliente_procedente → lead_descartado
+const PIPELINE_STATUSES = new Set([
+  "lead_novo", "lead_qualificado", "em_atendimento", "follow_up",
+  "contrato_assinado", "cliente_ativo", "cliente_procedente", "lead_descartado",
+]);
+
+// Mapeia status do ChatGuru para nosso pipeline
+function mapStatus(raw: string | undefined | null): string | null {
+  if (!raw) return null;
   const s = raw.toLowerCase().trim();
-  if (s === "aberto" || s === "open") return "open";
-  if (s === "em atendimento" || s === "in_progress" || s === "atendimento") return "in_progress";
-  if (s === "aguardando" || s === "waiting") return "waiting";
-  if (s === "resolvido" || s === "resolved") return "resolved";
-  if (s === "fechado" || s === "closed") return "closed";
-  return "open";
+  // Novos valores nativos — passa direto
+  if (PIPELINE_STATUSES.has(s)) return s;
+  // Legado → novo pipeline
+  if (s === "aberto" || s === "open" || s === "unknown") return "lead_novo";
+  if (s === "em atendimento" || s === "in_progress" || s === "atendimento") return "em_atendimento";
+  if (s === "aguardando" || s === "waiting") return "lead_qualificado";
+  if (s === "resolvido" || s === "resolved") return "contrato_assinado";
+  if (s === "fechado" || s === "closed") return "lead_descartado";
+  return null; // não reconhecido → preservar status atual
 }
 
 /**
@@ -131,14 +143,37 @@ router.post("/webhook", async (req: Request, res: Response) => {
       // UPDATE: preserva o agentId atribuído internamente; só sobrescreve se webhook trouxer agente válido
       const existingAgentId = existing[0].agentId;
       const finalAgentId = agentId ?? existingAgentId;
-      const finalAgentName = agentId
-        ? agentName
-        : existing[0].assignedAgent;
+      const finalAgentName = agentId ? agentName : existing[0].assignedAgent;
+
+      // ── Determinar novo status ──────────────────────────────────────────────
+      // Se ChatGuru enviou status explícito → mapear; senão → preservar o atual
+      const mappedStatus = mapStatus(rawStatus);
+      let newStatus = mappedStatus ?? existing[0].status;
+      const prevStatus = existing[0].status;
+
+      // ── Detecção de transição Bot → Humano ─────────────────────────────────
+      // Se o lead não tinha agente humano E agora tem → LEAD QUALIFICADO
+      const wasUnassigned = !existingAgentId;
+      const nowAssigned = !!agentId; // agentId != null → agente existe na nossa tabela
+      const isUpgradeableStatus = ["lead_novo", "open", "unknown", "waiting", "lead_qualificado"].includes(prevStatus);
+
+      if (wasUnassigned && nowAssigned && isUpgradeableStatus) {
+        newStatus = "lead_qualificado";
+        // Registrar transição no histórico
+        await db.insert(statusHistoryTable).values({
+          conversationId: existing[0].id,
+          fromStatus: prevStatus,
+          toStatus: "lead_qualificado",
+          changedBy: "system",
+          notes: `Bot transferiu para atendente humano: ${agentName}`,
+        });
+        req.log.info({ chatNumber, from: prevStatus, to: "lead_qualificado", agent: agentName }, "Auto-transition: bot→human");
+      }
 
       const prevContext = (existing[0].contextData as Record<string, unknown>) ?? {};
       await db.update(conversationsTable).set({
         contactName: contactName ?? existing[0].contactName,
-        status,
+        status: newStatus,
         assignedAgent: finalAgentName ?? existing[0].assignedAgent,
         agentId: finalAgentId,
         lastMessage: lastMsg ?? existing[0].lastMessage,
@@ -149,29 +184,29 @@ router.post("/webhook", async (req: Request, res: Response) => {
       }).where(eq(conversationsTable.chatNumber, String(chatNumber)));
 
     } else {
-      // INSERT: lead novo
+      // INSERT: lead novo — sempre começa em lead_novo
       const firstMsg = lastMsg ?? null;
       const campaign = identifyCampaign(firstMsg);
 
       // Round-robin automático para número Comercial (COMERCIAL_TRAFEGO)
-      // Se o webhook não trouxer agente válido, distribuímos automaticamente
       let finalAgentId: number | null = agentId;
       let finalAgentName: string | null = agentName;
 
       if (!finalAgentId) {
-        // Comercial → COMERCIAL_TRAFEGO; qualquer outro → sem atribuição automática
-        const team = "COMERCIAL_TRAFEGO"; // sempre tentar round-robin para tráfego pago
-        const picked = await pickRoundRobinAgent(team);
+        const picked = await pickRoundRobinAgent("COMERCIAL_TRAFEGO");
         if (picked) {
           finalAgentId = picked.id;
           finalAgentName = picked.name;
         }
       }
 
+      // Status inicial: lead_qualificado se já vier com agente humano, senão lead_novo
+      const initialStatus = finalAgentId ? "lead_qualificado" : "lead_novo";
+
       await db.insert(conversationsTable).values({
         chatNumber: String(chatNumber),
         contactName: contactName ?? null,
-        status,
+        status: initialStatus,
         assignedAgent: finalAgentName ?? null,
         agentId: finalAgentId,
         lastMessage: firstMsg,
@@ -182,7 +217,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
         campaign,
       });
 
-      req.log.info({ chatNumber, campaign, agentId: finalAgentId, agentName: finalAgentName }, "New lead created");
+      req.log.info({ chatNumber, campaign, agentId: finalAgentId, agentName: finalAgentName, status: initialStatus }, "New lead created");
     }
 
     res.json({ ok: true });
@@ -329,18 +364,90 @@ router.get("/stats", async (req: Request, res: Response) => {
       .orderBy(desc(conversationsTable.updatedAt)).limit(10),
   ]);
 
-  const stats = { total: 0, open: 0, inProgress: 0, waiting: 0, resolved: 0, closed: 0, todayTotal: Number(todayTotal), recentActivity };
+  // Pipeline completo com todos os status possíveis
+  const pipeline: Record<string, number> = {
+    lead_novo: 0, lead_qualificado: 0, em_atendimento: 0, follow_up: 0,
+    contrato_assinado: 0, cliente_ativo: 0, cliente_procedente: 0, lead_descartado: 0,
+  };
+  let total = 0;
+
   for (const row of statusCounts) {
     const n = Number(row.count);
-    stats.total += n;
-    if (row.status === "open") stats.open = n;
-    else if (row.status === "in_progress") stats.inProgress = n;
-    else if (row.status === "waiting") stats.waiting = n;
-    else if (row.status === "resolved") stats.resolved = n;
-    else if (row.status === "closed") stats.closed = n;
+    total += n;
+    const mapped = mapStatus(row.status);
+    const key = mapped ?? row.status;
+    if (key in pipeline) pipeline[key] += n;
+    else if (key === "lead_novo" || row.status === "open" || row.status === "unknown") pipeline.lead_novo += n;
   }
 
-  res.json(stats);
+  // Campos legados mantidos para compatibilidade com frontend antigo
+  res.json({
+    total,
+    todayTotal: Number(todayTotal),
+    pipeline,
+    // legado
+    open: pipeline.lead_novo,
+    inProgress: pipeline.em_atendimento,
+    waiting: pipeline.lead_qualificado,
+    resolved: pipeline.contrato_assinado,
+    closed: pipeline.lead_descartado,
+    recentActivity,
+  });
+});
+
+// ─── MIGRATE: atualizar status retroativamente ────────────────────────────────
+router.post("/migrate/statuses", async (req: Request, res: Response) => {
+  try {
+    // Busca leads com status "legado" que têm agente humano atribuído → LEAD QUALIFICADO
+    const oldStatuses = ["open", "unknown", "waiting", "in_progress"];
+
+    const leads = await db.select({
+      id: conversationsTable.id,
+      status: conversationsTable.status,
+      agentId: conversationsTable.agentId,
+      assignedAgent: conversationsTable.assignedAgent,
+    }).from(conversationsTable);
+
+    let qualificado = 0;
+    let emAtendimento = 0;
+    let leadNovo = 0;
+
+    for (const lead of leads) {
+      const hasHuman = !!lead.agentId;
+      const isLegacy = oldStatuses.includes(lead.status) || !PIPELINE_STATUSES.has(lead.status);
+
+      if (!isLegacy) continue; // já no novo pipeline, pula
+
+      let toStatus: string;
+      if (hasHuman && (lead.status === "in_progress")) {
+        toStatus = "em_atendimento";
+        emAtendimento++;
+      } else if (hasHuman) {
+        toStatus = "lead_qualificado";
+        qualificado++;
+      } else {
+        toStatus = "lead_novo";
+        leadNovo++;
+      }
+
+      await db.update(conversationsTable)
+        .set({ status: toStatus, updatedAt: new Date() })
+        .where(eq(conversationsTable.id, lead.id));
+
+      await db.insert(statusHistoryTable).values({
+        conversationId: lead.id,
+        fromStatus: lead.status,
+        toStatus,
+        changedBy: "system",
+        notes: "Migração retroativa de status (bot→pipeline)",
+      });
+    }
+
+    res.json({ ok: true, qualificado, emAtendimento, leadNovo, total: qualificado + emAtendimento + leadNovo });
+  } catch (err) {
+    req.log.error({ err }, "Status migration failed");
+    res.status(500).json({ ok: false, error: String(err) });
+  }
 });
 
 router.delete("/conversations/:id", async (req: Request, res: Response) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { X, ExternalLink, Clock, Save } from "lucide-react";
+import { X, ExternalLink, Clock, Save, ChevronRight } from "lucide-react";
 import { getCampaign, CampaignTag } from "@/lib/campaignColors";
 import { StatusBadge } from "@/components/status-badge";
 import { formatPhone } from "@/lib/utils";
@@ -35,12 +35,30 @@ interface ConvDetail {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  open: "Aberto", in_progress: "Em Atendimento", waiting: "Aguardando",
-  resolved: "Resolvido", closed: "Fechado",
+  lead_novo: "Lead Novo",
+  lead_qualificado: "Lead Qualificado",
+  em_atendimento: "Em Atendimento",
+  follow_up: "Follow Up",
+  contrato_assinado: "Contrato Assinado",
+  cliente_ativo: "Cliente Ativo",
+  cliente_procedente: "Cliente Procedente",
+  lead_descartado: "Lead Descartado",
+  // legado
+  open: "Lead Novo", in_progress: "Em Atendimento", waiting: "Lead Qualificado",
+  resolved: "Contrato Assinado", closed: "Lead Descartado",
 };
 const STATUS_COLORS: Record<string, string> = {
-  open: "#3b82f6", in_progress: "#06b6d4", waiting: "#f59e0b",
-  resolved: "#10b981", closed: "#64748b",
+  lead_novo: "#64748b",
+  lead_qualificado: "#3b82f6",
+  em_atendimento: "#06b6d4",
+  follow_up: "#f59e0b",
+  contrato_assinado: "#16a34a",
+  cliente_ativo: "#10b981",
+  cliente_procedente: "#14b8a6",
+  lead_descartado: "#f87171",
+  // legado
+  open: "#64748b", in_progress: "#06b6d4", waiting: "#3b82f6",
+  resolved: "#16a34a", closed: "#f87171",
 };
 
 interface LeadModalProps {
@@ -161,6 +179,36 @@ export function LeadModal({ leadId, onClose }: LeadModalProps) {
                     <p className="text-sm font-medium mt-0.5">{f.value}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Alteração manual de status */}
+              <div className="bg-muted/30 rounded-xl p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Alterar Status</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["lead_novo","lead_qualificado","em_atendimento","follow_up","contrato_assinado","cliente_ativo","cliente_procedente","lead_descartado"] as const).map(s => (
+                    <button
+                      key={s}
+                      disabled={conv.status === s}
+                      onClick={async () => {
+                        await fetch(`${BASE_URL}/api/conversations/${leadId}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: s }),
+                        });
+                        load();
+                      }}
+                      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-all font-medium ${
+                        conv.status === s
+                          ? "opacity-100 border-transparent text-white"
+                          : "border-border hover:border-primary hover:text-primary opacity-60 hover:opacity-100"
+                      }`}
+                      style={conv.status === s ? { background: STATUS_COLORS[s], borderColor: STATUS_COLORS[s] } : {}}
+                    >
+                      {conv.status === s && <ChevronRight className="w-3 h-3" />}
+                      {STATUS_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Primeira mensagem */}

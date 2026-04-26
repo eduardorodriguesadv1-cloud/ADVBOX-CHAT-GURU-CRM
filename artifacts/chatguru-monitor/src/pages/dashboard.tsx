@@ -115,21 +115,26 @@ export function Dashboard() {
 
   const today = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
+  const p = stats?.pipeline;
   const statCards = [
-    { label: "Total Hoje", value: stats?.todayTotal ?? 0, icon: "👥", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
-    { label: "Abertos", value: stats?.open ?? 0, icon: "🔔", bg: "#fffbeb", border: "#fde68a", valColor: "#92400e" },
-    { label: "Em Atendimento", value: stats?.inProgress ?? 0, icon: "💬", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
-    { label: "Aguardando", value: stats?.waiting ?? 0, icon: "⏳", bg: "#fff7ed", border: "#fed7aa", valColor: "#9a3412" },
-    { label: "Resolvidos", value: stats?.resolved ?? 0, icon: "✅", bg: "#f0fdf4", border: "#bbf7d0", valColor: "#065f46" },
-    { label: "Fechados", value: stats?.closed ?? 0, icon: "🔒", bg: "#f8fafc", border: "#e2e8f0", valColor: "#475569" },
+    { label: "Total Hoje",       value: stats?.todayTotal ?? 0,        icon: "👥", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
+    { label: "Lead Novo",        value: p?.lead_novo ?? 0,             icon: "🔔", bg: "#f8fafc", border: "#e2e8f0", valColor: "#475569" },
+    { label: "Lead Qualificado", value: p?.lead_qualificado ?? 0,      icon: "⚡", bg: "#eff6ff", border: "#bfdbfe", valColor: "#1d4ed8" },
+    { label: "Em Atendimento",   value: p?.em_atendimento ?? 0,        icon: "💬", bg: "#ecfeff", border: "#a5f3fc", valColor: "#0e7490" },
+    { label: "Contratos",        value: p?.contrato_assinado ?? 0,     icon: "✅", bg: "#f0fdf4", border: "#bbf7d0", valColor: "#065f46" },
+    { label: "Descartados",      value: p?.lead_descartado ?? 0,       icon: "🗑️", bg: "#fef2f2", border: "#fecaca", valColor: "#991b1b" },
   ];
 
-  const total = stats?.todayTotal ?? 0;
+  const totalLeads = stats?.total ?? 0;
   const funnelSteps = [
-    { label: "Captados", value: total, color: "#3b82f6" },
-    { label: "Abertos", value: stats?.open ?? 0, color: "#f59e0b" },
-    { label: "Em Atendimento", value: stats?.inProgress ?? 0, color: "#06b6d4" },
-    { label: "Resolvidos", value: stats?.resolved ?? 0, color: "#10b981" },
+    { label: "Lead Novo",         value: p?.lead_novo ?? 0,            color: "#64748b" },
+    { label: "Lead Qualificado",  value: p?.lead_qualificado ?? 0,     color: "#3b82f6" },
+    { label: "Em Atendimento",    value: p?.em_atendimento ?? 0,       color: "#06b6d4" },
+    { label: "Follow Up",         value: p?.follow_up ?? 0,            color: "#f59e0b" },
+    { label: "Contrato Assinado", value: p?.contrato_assinado ?? 0,    color: "#16a34a" },
+    { label: "Cliente Ativo",     value: p?.cliente_ativo ?? 0,        color: "#10b981" },
+    { label: "Cliente Procedente",value: p?.cliente_procedente ?? 0,   color: "#14b8a6" },
+    { label: "Lead Descartado",   value: p?.lead_descartado ?? 0,      color: "#f87171" },
   ];
 
   return (
@@ -216,7 +221,7 @@ export function Dashboard() {
                     <span className="text-xs font-semibold">{s.value}</span>
                   </div>
                   <div className="bg-muted rounded-full h-2 overflow-hidden">
-                    <div style={{ height: "100%", width: total > 0 ? `${(s.value / total) * 100}%` : "0%", background: s.color, borderRadius: 99, minWidth: s.value > 0 ? 8 : 0, transition: "width 0.5s" }} />
+                    <div style={{ height: "100%", width: totalLeads > 0 ? `${(s.value / totalLeads) * 100}%` : "0%", background: s.color, borderRadius: 99, minWidth: s.value > 0 ? 8 : 0, transition: "width 0.5s" }} />
                   </div>
                 </div>
               ))}
