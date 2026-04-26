@@ -1,6 +1,5 @@
 import { db } from "../index";
-import { customAudiencesTable, audienceUsageTable, adSetsTable } from "../schema";
-import { eq } from "drizzle-orm";
+import { customAudiencesTable } from "../schema";
 
 const BASE_URL = "https://graph.facebook.com/v22.0";
 
@@ -27,6 +26,30 @@ async function metaGet(path: string, params: Record<string, string> = {}): Promi
   return res.json();
 }
 
+async function metaGetPaginated<T>(path: string, params: Record<string, string> = {}): Promise<T[]> {
+  const results: T[] = [];
+  let nextUrl: string | null = null;
+  let isFirst = true;
+
+  while (isFirst || nextUrl) {
+    isFirst = false;
+    let data: { data: T[]; paging?: { next?: string } };
+
+    if (nextUrl) {
+      const res = await fetch(`${nextUrl}&access_token=${getToken()}`);
+      if (!res.ok) throw new Error(`Meta API error ${res.status}: ${await res.text()}`);
+      data = await res.json() as typeof data;
+    } else {
+      data = await metaGet(path, params) as typeof data;
+    }
+
+    results.push(...(data.data ?? []));
+    nextUrl = data.paging?.next ?? null;
+  }
+
+  return results;
+}
+
 export interface MetaAudience {
   id: string;
   name: string;
@@ -38,13 +61,31 @@ export interface MetaAudience {
   time_created?: number;
 }
 
+interface MetaAdSetFlat {
+  id: string;
+  status: string;
+  targeting?: {
+    custom_audiences?: Array<{ id: string; name?: string }>;
+    lookalike_audiences?: Array<{ id: string; name?: string }>;
+    excluded_custom_audiences?: Array<{ id: string; name?: string }>;
+  };
+}
+
 export async function fetchCustomAudiences(): Promise<MetaAudience[]> {
   const adAccountId = getAdAccountId();
-  const data = await metaGet(`/${adAccountId}/customaudiences`, {
+  return metaGetPaginated<MetaAudience>(`/${adAccountId}/customaudiences`, {
     fields: "id,name,subtype,approximate_count_with_privacy_treatment,delivery_status,description,time_created",
     limit: "200",
-  }) as { data: MetaAudience[] };
-  return data.data ?? [];
+  });
+}
+
+// Fetch ALL adsets from the account (all campaigns, all statuses) in one paginated call
+async function fetchAllAccountAdSets(): Promise<MetaAdSetFlat[]> {
+  const adAccountId = getAdAccountId();
+  return metaGetPaginated<MetaAdSetFlat>(`/${adAccountId}/adsets`, {
+    fields: "id,status,targeting{custom_audiences,lookalike_audiences,excluded_custom_audiences}",
+    limit: "200",
+  });
 }
 
 function deriveType(subtype: string | undefined): string {
@@ -67,11 +108,43 @@ function deriveStatus(deliveryStatus: MetaAudience["delivery_status"]): string {
 }
 
 export async function syncAllAudiences(): Promise<{ audiences: number; usages: number }> {
-  const audiences = await fetchCustomAudiences();
+  // Fetch audiences and ALL adsets in parallel
+  const [audiences, allAdsets] = await Promise.all([
+    fetchCustomAudiences(),
+    fetchAllAccountAdSets(),
+  ]);
+
+  // Build usage map: metaAudienceId -> { active: number, inactive: number }
+  const usageMap = new Map<string, { active: number; inactive: number }>();
+
+  for (const adset of allAdsets) {
+    const t = adset.targeting;
+    if (!t) continue;
+
+    const referencedIds = [
+      ...(t.custom_audiences ?? []).map((a) => a.id),
+      ...(t.lookalike_audiences ?? []).map((a) => a.id),
+    ];
+
+    for (const audienceId of referencedIds) {
+      if (!usageMap.has(audienceId)) usageMap.set(audienceId, { active: 0, inactive: 0 });
+      const entry = usageMap.get(audienceId)!;
+      if (adset.status === "ACTIVE") {
+        entry.active++;
+      } else {
+        entry.inactive++;
+      }
+    }
+  }
+
   let audienceCount = 0;
-  let usageCount = 0;
+  let totalUsages = 0;
 
   for (const a of audiences) {
+    const usage = usageMap.get(a.id) ?? { active: 0, inactive: 0 };
+    const hasUsage = usage.active > 0 || usage.inactive > 0;
+    totalUsages += usage.active + usage.inactive;
+
     await db
       .insert(customAudiencesTable)
       .values({
@@ -84,6 +157,9 @@ export async function syncAllAudiences(): Promise<{ audiences: number; usages: n
         description: a.description ?? null,
         rules: null,
         createdTime: a.time_created ? new Date(a.time_created * 1000) : null,
+        activeAdsetCount: usage.active,
+        inactiveAdsetCount: usage.inactive,
+        lastUsedAt: hasUsage ? new Date() : null,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -95,61 +171,14 @@ export async function syncAllAudiences(): Promise<{ audiences: number; usages: n
           status: deriveStatus(a.delivery_status),
           description: a.description ?? null,
           rules: null,
+          activeAdsetCount: usage.active,
+          inactiveAdsetCount: usage.inactive,
+          lastUsedAt: hasUsage ? new Date() : undefined,
           updatedAt: new Date(),
         },
       });
     audienceCount++;
   }
 
-  // Sync audience usages from adset targeting data
-  const adsets = await db
-    .select({
-      id: adSetsTable.id,
-      audienceDetails: adSetsTable.audienceDetails,
-    })
-    .from(adSetsTable);
-
-  for (const adset of adsets) {
-    const details = adset.audienceDetails as {
-      custom_audiences?: Array<{ id: string }>;
-      lookalike_audiences?: Array<{ id: string }>;
-      excluded_custom_audiences?: Array<{ id: string }>;
-    } | null;
-
-    if (!details) continue;
-
-    const included = details.custom_audiences ?? [];
-    const lookalikes = details.lookalike_audiences ?? [];
-    const excluded = details.excluded_custom_audiences ?? [];
-
-    const toInsert: Array<{ metaId: string; type: string }> = [
-      ...included.map((a) => ({ metaId: a.id, type: "INCLUDED" })),
-      ...lookalikes.map((a) => ({ metaId: a.id, type: "INCLUDED" })),
-      ...excluded.map((a) => ({ metaId: a.id, type: "EXCLUDED" })),
-    ];
-
-    for (const usage of toInsert) {
-      const [audience] = await db
-        .select({ id: customAudiencesTable.id })
-        .from(customAudiencesTable)
-        .where(eq(customAudiencesTable.metaAudienceId, usage.metaId));
-
-      if (!audience) continue;
-
-      await db
-        .insert(audienceUsageTable)
-        .values({ adsetId: adset.id, audienceId: audience.id, type: usage.type })
-        .onConflictDoNothing();
-
-      // Update last_used_at
-      await db
-        .update(customAudiencesTable)
-        .set({ lastUsedAt: new Date() })
-        .where(eq(customAudiencesTable.id, audience.id));
-
-      usageCount++;
-    }
-  }
-
-  return { audiences: audienceCount, usages: usageCount };
+  return { audiences: audienceCount, usages: totalUsages };
 }

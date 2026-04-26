@@ -44,6 +44,7 @@ export interface AuditOverview {
     total: number;
     duplicates: number;
     unused: number;
+    historic: number;
     stale: number;
     orphanEngagement: number;
   };
@@ -105,20 +106,21 @@ export async function detectDuplicateAudiences(): Promise<DiagnosticIssue[]> {
 
 // ──────────────────────────────────────────────────────────────
 // 2. Unused Audiences
+// Uses activeAdsetCount / inactiveAdsetCount from Meta API (synced via adsets edge)
+// Categories:
+//   neverUsed   → activeAdsetCount = 0 AND inactiveAdsetCount = 0
+//   historicOnly → activeAdsetCount = 0 AND inactiveAdsetCount > 0
+//   activeUse   → activeAdsetCount > 0 (healthy, no issue)
 // ──────────────────────────────────────────────────────────────
 export async function detectUnusedAudiences(): Promise<DiagnosticIssue[]> {
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-
-  const usedIds = await db
-    .select({ audienceId: audienceUsageTable.audienceId })
-    .from(audienceUsageTable);
-  const usedSet = new Set(usedIds.map((r) => r.audienceId));
-
   const allAudiences = await db.select().from(customAudiencesTable);
 
-  const neverUsed = allAudiences.filter((a) => !usedSet.has(a.id));
-  const longUnused = allAudiences.filter(
-    (a) => usedSet.has(a.id) && a.lastUsedAt && a.lastUsedAt < ninetyDaysAgo
+  // Only flag audiences where Meta API confirms zero adset usage
+  const neverUsed = allAudiences.filter(
+    (a) => (a.activeAdsetCount ?? 0) === 0 && (a.inactiveAdsetCount ?? 0) === 0
+  );
+  const historicOnly = allAudiences.filter(
+    (a) => (a.activeAdsetCount ?? 0) === 0 && (a.inactiveAdsetCount ?? 0) > 0
   );
 
   const issues: DiagnosticIssue[] = [];
@@ -128,27 +130,27 @@ export async function detectUnusedAudiences(): Promise<DiagnosticIssue[]> {
       id: "unused-audiences-never",
       severity: "low",
       category: "audience",
-      title: `${neverUsed.length} público(s) nunca utilizados`,
-      description: "Esses públicos foram criados mas jamais associados a nenhum conjunto de anúncios.",
+      title: `${neverUsed.length} público(s) nunca utilizados em nenhum AdSet`,
+      description: "Esses públicos foram criados na conta Meta mas jamais foram associados a nenhum conjunto de anúncios — confirmado via API.",
       impactEstimate: "Limpeza de conta — sem impacto financeiro direto",
       suggestion: "Avaliar se ainda são relevantes ou excluir para organizar a conta.",
       items: neverUsed.map((a) => ({ id: a.id, name: a.name, detail: a.type ?? undefined })),
     });
   }
 
-  if (longUnused.length > 0) {
+  if (historicOnly.length > 0) {
     issues.push({
-      id: "unused-audiences-90d",
+      id: "unused-audiences-historic",
       severity: "low",
       category: "audience",
-      title: `${longUnused.length} público(s) sem uso há +90 dias`,
-      description: "Esses públicos foram utilizados no passado mas estão inativos há mais de 3 meses.",
-      impactEstimate: "Limpeza de conta — reduz confusão operacional",
-      suggestion: "Deletar públicos obsoletos ou arquivar para revisão futura.",
-      items: longUnused.map((a) => ({
+      title: `${historicOnly.length} público(s) em uso apenas em AdSets pausados`,
+      description: "Esses públicos estão associados a AdSets mas nenhum deles está ativo no momento. São históricos, não desperdício ativo.",
+      impactEstimate: "Revisão recomendada — podem ser ativados ou removidos",
+      suggestion: "Verificar se esses AdSets pausados devem ser reativados. Se não, avaliar limpeza.",
+      items: historicOnly.map((a) => ({
         id: a.id,
         name: a.name,
-        detail: a.lastUsedAt ? `Último uso: ${a.lastUsedAt.toLocaleDateString("pt-BR")}` : undefined,
+        detail: `${a.inactiveAdsetCount ?? 0} adset(s) pausado(s)`,
       })),
     });
   }
@@ -556,7 +558,8 @@ export async function runFullDiagnostics(): Promise<{
   for (const issue of allIssues) issuesBySeverity[issue.severity]++;
 
   const dupAudItems = dupAud.flatMap((i) => i.items);
-  const unusedItems = unusedAud.flatMap((i) => i.items);
+  const neverUsedItems = unusedAud.find((i) => i.id === "unused-audiences-never")?.items ?? [];
+  const historicItems = unusedAud.find((i) => i.id === "unused-audiences-historic")?.items ?? [];
   const orphanEngItems = orphanEng.flatMap((i) => i.items);
   const lowCtrIssue = lowPerf.find((i) => i.id === "low-ctr-ads");
   const highFreqIssue = lowPerf.find((i) => i.id === "high-frequency-ads");
@@ -567,7 +570,8 @@ export async function runFullDiagnostics(): Promise<{
     audiences: {
       total: Number(audienceCount[0]?.count ?? 0),
       duplicates: dupAudItems.length,
-      unused: unusedItems.length,
+      unused: neverUsedItems.length,
+      historic: historicItems.length,
       stale: stale.flatMap((i) => i.items).length,
       orphanEngagement: orphanEngItems.length,
     },
@@ -605,14 +609,16 @@ export async function runFullDiagnostics(): Promise<{
     .orderBy(desc(customAudiencesTable.approximateCount));
 
   const dupAudIds = new Set(dupAudItems.map((i) => Number(i.id)));
-  const unusedAudIds = new Set(unusedItems.map((i) => Number(i.id)));
+  const neverUsedIds = new Set(neverUsedItems.map((i) => Number(i.id)));
+  const historicIds = new Set(historicItems.map((i) => Number(i.id)));
   const staleAudIds = new Set(stale.flatMap((i) => i.items).map((i) => Number(i.id)));
   const orphanEngIds = new Set(orphanEngItems.map((i) => Number(i.id)));
 
   const audiencesWithIssues: AudienceWithIssues[] = allAudiences.map((a) => {
     const issues: string[] = [];
     if (dupAudIds.has(a.id)) issues.push("Duplicado");
-    if (unusedAudIds.has(a.id)) issues.push("Não usado");
+    if (neverUsedIds.has(a.id)) issues.push("Nunca usado");
+    if (historicIds.has(a.id)) issues.push("Uso histórico");
     if (staleAudIds.has(a.id)) issues.push("Em preenchimento");
     if (orphanEngIds.has(a.id)) issues.push("Engajamento órfão");
     return { ...a, issues, adsetCount: Number(a.adsetCount ?? 0) };
