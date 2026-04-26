@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useListConversations, useDeleteConversation, getListConversationsQueryKey, type ListConversationsStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -7,11 +7,53 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/status-badge";
-import { formatPhone, formatDate } from "@/lib/utils";
-import { Search, Loader2, FileText, Trash2 } from "lucide-react";
+import { formatPhone } from "@/lib/utils";
+import { timeAgo, silenceLevel } from "@/lib/time";
+import { Search, Loader2, FileText, Trash2, ExternalLink, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
+
+const CHATGURU_WEB = "https://app.zap.guru";
+
+function openInChatGuru(chatNumber: string) {
+  const phone = chatNumber.replace(/\D/g, "");
+  window.open(`${CHATGURU_WEB}/chats/${phone}`, "_blank", "noopener,noreferrer");
+}
+
+function SilenceBadge({ lastMessageAt, status }: { lastMessageAt?: string | null; status: string }) {
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => forceUpdate(n => n + 1), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!lastMessageAt || status === "resolved" || status === "closed") return null;
+
+  const level = silenceLevel(lastMessageAt);
+  const ago = timeAgo(lastMessageAt);
+
+  if (level === "ok") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Clock className="w-3 h-3" />{ago}
+      </span>
+    );
+  }
+
+  const colors = {
+    warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-semibold",
+  } as const;
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md ${colors[level]}`}>
+      <Clock className="w-3 h-3" />
+      {ago} sem resposta
+    </span>
+  );
+}
 
 function ContextDataPopover({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data);
@@ -53,7 +95,8 @@ export function Conversations() {
         status: status === "all" ? undefined : status as ListConversationsStatus,
         limit: 50
       }),
-      keepPreviousData: true
+      keepPreviousData: true,
+      refetchInterval: 60_000,
     }
   });
 
@@ -83,8 +126,8 @@ export function Conversations() {
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Buscar por número ou nome..." 
+              <Input
+                placeholder="Buscar por número ou nome..."
                 className="pl-9"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -121,9 +164,9 @@ export function Conversations() {
                   <TableHead>Status</TableHead>
                   <TableHead>Agente</TableHead>
                   <TableHead>Última Mensagem</TableHead>
+                  <TableHead>Espera</TableHead>
                   <TableHead>Dados</TableHead>
-                  <TableHead className="text-right">Atualização</TableHead>
-                  <TableHead></TableHead>
+                  <TableHead className="text-right pr-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -158,10 +201,13 @@ export function Conversations() {
                       <TableCell>
                         {conv.assignedAgent || <span className="text-muted-foreground italic text-xs">Não atribuído</span>}
                       </TableCell>
-                      <TableCell className="max-w-[200px]">
-                         <span className="truncate block text-sm text-muted-foreground">
+                      <TableCell className="max-w-[180px]">
+                        <span className="truncate block text-sm text-muted-foreground">
                           {conv.lastMessage || "-"}
-                         </span>
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <SilenceBadge lastMessageAt={conv.lastMessageAt} status={conv.status} />
                       </TableCell>
                       <TableCell>
                         {conv.contextData && Object.keys(conv.contextData).length > 0
@@ -169,27 +215,35 @@ export function Conversations() {
                           : <span className="text-muted-foreground text-xs italic">—</span>
                         }
                       </TableCell>
-                      <TableCell className="text-right text-sm text-muted-foreground">
-                        {formatDate(conv.updatedAt)}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          disabled={deletingId === conv.id}
-                          onClick={() => {
-                            if (confirm(`Remover conversa de ${conv.contactName || conv.chatNumber}?`)) {
-                              setDeletingId(conv.id);
-                              deleteConv({ id: conv.id });
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                            title="Abrir no ChatGuru"
+                            onClick={() => openInChatGuru(conv.chatNumber)}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            disabled={deletingId === conv.id}
+                            onClick={() => {
+                              if (confirm(`Remover conversa de ${conv.contactName || conv.chatNumber}?`)) {
+                                setDeletingId(conv.id);
+                                deleteConv({ id: conv.id });
+                              }
+                            }}
+                          >
+                            {deletingId === conv.id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Trash2 className="w-3.5 h-3.5" />
                             }
-                          }}
-                        >
-                          {deletingId === conv.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : <Trash2 className="w-3.5 h-3.5" />
-                          }
-                        </Button>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
