@@ -195,47 +195,43 @@ router.post("/webhook", async (req: Request, res: Response) => {
 // ─── MIGRATE: reclassificar campanhas retroativamente ────────────────────────
 router.post("/migrate/campaigns", async (req: Request, res: Response) => {
   try {
-    const leads = await db.select({
+    // force=true: reclassifica TODOS; false (default): apenas null ou INDEFINIDA
+    const allLeads = await db.select({
       id: conversationsTable.id,
       firstMessage: conversationsTable.firstMessage,
+      lastMessage: conversationsTable.lastMessage,
       campaign: conversationsTable.campaign,
     }).from(conversationsTable)
-      .where(or(
+      .where(req.body?.force ? undefined : or(
         isNull(conversationsTable.campaign),
         eq(conversationsTable.campaign, "INDEFINIDA"),
       ));
 
     let updated = 0;
     let reclassified = 0;
+    const byCampaign: Record<string, number> = {};
 
-    for (const lead of leads) {
-      const newCampaign = identifyCampaign(lead.firstMessage);
+    for (const lead of allLeads) {
+      // Fallback: usa lastMessage quando firstMessage é null (leads antigos)
+      const msgToAnalyze = lead.firstMessage || lead.lastMessage;
+      const newCampaign = identifyCampaign(msgToAnalyze);
+
+      // Atualiza firstMessage se estava null (preservar para o futuro)
+      const updateData: Record<string, unknown> = { campaign: newCampaign, updatedAt: new Date() };
+      if (!lead.firstMessage && lead.lastMessage) {
+        updateData.firstMessage = lead.lastMessage;
+      }
+
       await db.update(conversationsTable)
-        .set({ campaign: newCampaign, updatedAt: new Date() })
+        .set(updateData as any)
         .where(eq(conversationsTable.id, lead.id));
+
       updated++;
       if (newCampaign !== "INDEFINIDA") reclassified++;
+      byCampaign[newCampaign] = (byCampaign[newCampaign] || 0) + 1;
     }
 
-    // Também reclassificar leads que já têm campanha (por precaução)
-    if (req.body?.force) {
-      const allLeads = await db.select({
-        id: conversationsTable.id,
-        firstMessage: conversationsTable.firstMessage,
-      }).from(conversationsTable);
-
-      updated = 0; reclassified = 0;
-      for (const lead of allLeads) {
-        const newCampaign = identifyCampaign(lead.firstMessage);
-        await db.update(conversationsTable)
-          .set({ campaign: newCampaign, updatedAt: new Date() })
-          .where(eq(conversationsTable.id, lead.id));
-        updated++;
-        if (newCampaign !== "INDEFINIDA") reclassified++;
-      }
-    }
-
-    res.json({ ok: true, updated, reclassified });
+    res.json({ ok: true, updated, reclassified, byCampaign });
   } catch (err) {
     req.log.error({ err }, "Campaign migration failed");
     res.status(500).json({ ok: false, error: String(err) });
@@ -245,6 +241,19 @@ router.post("/migrate/campaigns", async (req: Request, res: Response) => {
 // ─── MIGRATE: redistribuir agentes em round-robin ────────────────────────────
 router.post("/migrate/agents", async (req: Request, res: Response) => {
   try {
+    // Auto-seed agentes se tabela estiver vazia (produção)
+    const existingAgents = await db.select({ id: agentsTable.id }).from(agentsTable).limit(1);
+    if (existingAgents.length === 0) {
+      await db.insert(agentsTable).values([
+        { name: "Thiago Tavares", team: "COMERCIAL_TRAFEGO", active: true },
+        { name: "Tammyres",       team: "COMERCIAL_TRAFEGO", active: true },
+        { name: "Letícia",        team: "ATENDIMENTO",       active: true },
+        { name: "Marília",        team: "ATENDIMENTO",       active: true },
+        { name: "Alice",          team: "ATENDIMENTO",       active: true },
+        { name: "Cau",            team: "ATENDIMENTO",       active: true },
+      ]);
+    }
+
     // Busca agentes COMERCIAL_TRAFEGO ativos por ordem de criação
     const comercialAgents = await db.select({ id: agentsTable.id, name: agentsTable.name })
       .from(agentsTable)
