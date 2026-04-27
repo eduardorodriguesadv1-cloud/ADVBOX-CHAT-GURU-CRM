@@ -1,17 +1,17 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 
-const SESSION_SECRET = process.env.SESSION_SECRET!;
-const ADMIN_USER = process.env.ADMIN_USER || "eduardo";
-const ADMIN_PASS = process.env.ADMIN_PASS!;
-const TEAM_USER = process.env.TEAM_USER || "equipe";
-const TEAM_PASS = process.env.TEAM_PASS!;
+function getEnv(key: string, fallback?: string): string {
+  const val = process.env[key] ?? fallback;
+  if (!val) throw new Error(`Missing required env var: ${key}`);
+  return val;
+}
 
 export type UserRole = "admin" | "team";
 
 function sign(value: string): string {
   return crypto
-    .createHmac("sha256", SESSION_SECRET)
+    .createHmac("sha256", getEnv("SESSION_SECRET"))
     .update(value)
     .digest("hex");
 }
@@ -72,7 +72,11 @@ export function validateCredentials(
   username: string,
   password: string
 ): UserRole | null {
-  if (username === ADMIN_USER && password === ADMIN_PASS) return "admin";
-  if (username === TEAM_USER && password === TEAM_PASS) return "team";
+  const adminUser = getEnv("ADMIN_USER", "eduardo");
+  const adminPass = getEnv("ADMIN_PASS");
+  const teamUser = getEnv("TEAM_USER", "equipe");
+  const teamPass = getEnv("TEAM_PASS");
+  if (username === adminUser && password === adminPass) return "admin";
+  if (username === teamUser && password === teamPass) return "team";
   return null;
 }
