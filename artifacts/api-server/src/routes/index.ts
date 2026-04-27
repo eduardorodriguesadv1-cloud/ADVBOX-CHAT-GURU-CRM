@@ -8,8 +8,16 @@ import conversationsExtraRouter from "./conversations-extra";
 import summariesRouter from "./summaries";
 import campaignsRouter from "./campaigns";
 import auditRouter from "./audit";
+import authRouter from "./auth";
+import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+
+// Public: auth endpoints
+router.use("/auth", authRouter);
+
+// Protected: all other routes require valid session cookie
+router.use(requireAuth);
 
 router.use(healthRouter);
 router.use("/chatguru", chatguruRouter);

@@ -38,3 +38,5 @@ channel = "stable-25_05"
 
 [userenv.shared]
 META_AD_ACCOUNT_ID = "act_654132083965752"
+ADMIN_USER = "eduardo"
+TEAM_USER = "equipe"

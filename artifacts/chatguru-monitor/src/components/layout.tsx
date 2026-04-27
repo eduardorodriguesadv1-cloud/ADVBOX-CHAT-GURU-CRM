@@ -1,43 +1,76 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, MessageSquareText, Search, SendHorizonal, Users, Smartphone, Tag, Moon, Sun, Bell, AlertTriangle, BarChart2, TrendingUp, ShieldAlert } from "lucide-react";
+import {
+  LayoutDashboard,
+  MessageSquareText,
+  Search,
+  SendHorizonal,
+  Users,
+  Smartphone,
+  Tag,
+  Moon,
+  Sun,
+  Bell,
+  AlertTriangle,
+  BarChart2,
+  TrendingUp,
+  ShieldAlert,
+  LogOut,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 import { useBrowserNotifications } from "@/hooks/use-notifications";
+import { useAuth, type UserRole } from "@/hooks/use-auth";
 
 interface LayoutProps {
   children: React.ReactNode;
   onSearch?: () => void;
 }
 
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ElementType;
+  adminOnly?: boolean;
+}
+
+const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
+  {
+    label: "Principal",
+    items: [
+      { name: "Dashboard", href: "/", icon: LayoutDashboard },
+      { name: "Conversas", href: "/conversations", icon: MessageSquareText },
+      { name: "Alertas", href: "/alerts", icon: AlertTriangle },
+      { name: "Resumos", href: "/summaries", icon: BarChart2, adminOnly: true },
+      { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
+    ],
+  },
+  {
+    label: "Configuração",
+    items: [
+      { name: "Performance de Tráfego", href: "/traffic", icon: TrendingUp, adminOnly: true },
+      { name: "Auditoria de Anúncios", href: "/audit", icon: ShieldAlert, adminOnly: true },
+      { name: "Equipe", href: "/team", icon: Users, adminOnly: true },
+      { name: "Números", href: "/numbers", icon: Smartphone, adminOnly: true },
+      { name: "Tags", href: "/tags", icon: Tag, adminOnly: true },
+      { name: "Consultar Número", href: "/check", icon: Search },
+    ],
+  },
+];
+
+function filterItems(items: NavItem[], role: UserRole | null) {
+  return items.filter((item) => !item.adminOnly || role === "admin");
+}
+
 export function Layout({ children, onSearch }: LayoutProps) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { requestPermission } = useBrowserNotifications();
+  const { role, logout } = useAuth();
 
-  const navSections = [
-    {
-      label: "Principal",
-      items: [
-        { name: "Dashboard", href: "/", icon: LayoutDashboard },
-        { name: "Conversas", href: "/conversations", icon: MessageSquareText },
-        { name: "Alertas", href: "/alerts", icon: AlertTriangle },
-        { name: "Resumos", href: "/summaries", icon: BarChart2 },
-        { name: "Reengajamento", href: "/reengagement", icon: SendHorizonal },
-      ],
-    },
-    {
-      label: "Configuração",
-      items: [
-        { name: "Performance de Tráfego", href: "/traffic", icon: TrendingUp },
-        { name: "Auditoria de Anúncios", href: "/audit", icon: ShieldAlert },
-        { name: "Equipe", href: "/team", icon: Users },
-        { name: "Números", href: "/numbers", icon: Smartphone },
-        { name: "Tags", href: "/tags", icon: Tag },
-        { name: "Consultar Número", href: "/check", icon: Search },
-      ],
-    },
-  ];
+  async function handleLogout() {
+    await logout();
+  }
 
   return (
     <div className="min-h-screen bg-background flex w-full">
@@ -61,49 +94,61 @@ export function Layout({ children, onSearch }: LayoutProps) {
             >
               <Search className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1 text-left">Buscar lead...</span>
-              <kbd className="text-[10px] border border-sidebar-border rounded px-1 py-0.5 bg-sidebar-accent/30">⌘K</kbd>
+              <kbd className="text-[10px] border border-sidebar-border rounded px-1 py-0.5 bg-sidebar-accent/30">
+                ⌘K
+              </kbd>
             </button>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-          {navSections.map(section => (
-            <div key={section.label}>
-              <div className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mb-2 px-2">
-                {section.label}
+          {NAV_SECTIONS.map((section) => {
+            const visibleItems = filterItems(section.items, role);
+            if (visibleItems.length === 0) return null;
+            return (
+              <div key={section.label}>
+                <div className="text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mb-2 px-2">
+                  {section.label}
+                </div>
+                <div className="space-y-0.5">
+                  {visibleItems.map((item) => {
+                    const isActive =
+                      location === item.href ||
+                      (item.href !== "/" && location.startsWith(item.href));
+                    return (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                          isActive
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        )}
+                      >
+                        <item.icon className="w-5 h-5 flex-shrink-0" />
+                        {item.name}
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                {section.items.map((item) => {
-                  const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      )}
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Footer sidebar: dark mode + notification */}
+        {/* Footer sidebar */}
         <div className="px-4 py-3 border-t border-sidebar-border flex items-center gap-2">
           <button
             onClick={toggleTheme}
             title={theme === "dark" ? "Modo claro" : "Modo escuro"}
             className="flex items-center justify-center w-9 h-9 rounded-md text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
           >
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
           </button>
           <button
             onClick={requestPermission}
@@ -112,7 +157,16 @@ export function Layout({ children, onSearch }: LayoutProps) {
           >
             <Bell className="w-4 h-4" />
           </button>
-          <span className="text-xs text-sidebar-foreground/30 ml-auto">v2.0</span>
+          <span className="text-xs text-sidebar-foreground/30 ml-auto">
+            {role === "admin" ? "admin" : "equipe"}
+          </span>
+          <button
+            onClick={handleLogout}
+            title="Sair"
+            className="flex items-center justify-center w-9 h-9 rounded-md text-sidebar-foreground/60 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -128,12 +182,29 @@ export function Layout({ children, onSearch }: LayoutProps) {
           </div>
           <div className="flex items-center gap-1">
             {onSearch && (
-              <button onClick={onSearch} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              <button
+                onClick={onSearch}
+                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
                 <Search className="w-4 h-4" />
               </button>
             )}
-            <button onClick={toggleTheme} className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {theme === "dark" ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              onClick={handleLogout}
+              title="Sair"
+              className="p-2 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>
@@ -144,14 +215,21 @@ export function Layout({ children, onSearch }: LayoutProps) {
             { href: "/", icon: LayoutDashboard, label: "Home" },
             { href: "/conversations", icon: MessageSquareText, label: "Leads" },
             { href: "/alerts", icon: AlertTriangle, label: "Alertas" },
-            { href: "/summaries", icon: BarChart2, label: "Resumos" },
-            { href: "/team", icon: Users, label: "Equipe" },
-          ].map(item => {
-            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            { href: "/reengagement", icon: SendHorizonal, label: "Reeng." },
+            { href: "/check", icon: Search, label: "Consultar" },
+          ].map((item) => {
+            const isActive =
+              location === item.href ||
+              (item.href !== "/" && location.startsWith(item.href));
             return (
-              <Link key={item.href} href={item.href}
-                className={cn("flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors text-xs",
-                  isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors text-xs",
+                  isActive
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <item.icon className="w-5 h-5" />
@@ -162,9 +240,7 @@ export function Layout({ children, onSearch }: LayoutProps) {
         </nav>
 
         <main className="flex-1 overflow-auto p-4 md:p-8 pb-20 md:pb-8">
-          <div className="mx-auto max-w-6xl w-full">
-            {children}
-          </div>
+          <div className="mx-auto max-w-6xl w-full">{children}</div>
         </main>
       </div>
     </div>
